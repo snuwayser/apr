@@ -188,7 +188,6 @@ struct apr_pollset_private_t
     int maxfd;
     apr_pollfd_t *query_set;
     apr_pollfd_t *result_set;
-    apr_uint32_t flags;
 #ifdef NETWARE
     int set_type;
 #endif
@@ -199,7 +198,7 @@ static apr_status_t impl_pollset_create(apr_pollset_t *pollset,
                                         apr_pool_t *p,
                                         apr_uint32_t flags)
 {
-    if (flags & APR_POLLSET_THREADSAFE) {                
+    if (flags & APR_POLLSET_THREADSAFE) {
         pollset->p = NULL;
         return APR_ENOTIMPL;
     }

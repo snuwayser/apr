@@ -93,7 +93,7 @@ static void lock_release(test_mode_e test_mode)
 
 static void * APR_THREAD_FUNC eachThread(apr_thread_t *id, void *p)
 {
-    test_mode_e test_mode = (test_mode_e)p;
+    test_mode_e test_mode = (test_mode_e)(apr_uintptr_t)p;
 
     lock_grab(test_mode);
     ++counter;
@@ -121,7 +121,7 @@ static void test_mech_mode(apr_lockmech_e mech, const char *mech_name,
 
   assert(apr_thread_mutex_create(&thread_mutex, 0, p) == APR_SUCCESS);
   assert(apr_thread_mutex_lock(thread_mutex) == APR_SUCCESS);
-  
+
   rv = lock_init(mech, test_mode);
   if (rv != APR_SUCCESS) {
       char errmsg[256];
@@ -142,7 +142,7 @@ static void test_mech_mode(apr_lockmech_e mech, const char *mech_name,
     rv = apr_thread_create(&threads[i],
                            NULL,
                            eachThread,
-                           (void *)test_mode,
+                           (void *)(apr_uintptr_t)test_mode,
                            p);
     if (rv != APR_SUCCESS) {
       fprintf(stderr, "apr_thread_create->%d\n", rv);
@@ -170,7 +170,7 @@ static void test_mech_mode(apr_lockmech_e mech, const char *mech_name,
           printf("  no problem encountered...\n");
       }
   }
-  
+
   assert(apr_thread_mutex_unlock(thread_mutex) == APR_SUCCESS);
 
   i = 0;
@@ -220,13 +220,13 @@ int main(void)
         ,{APR_LOCK_DEFAULT_TIMED, "default_timed"}
     };
     int i;
-        
+
     assert(apr_initialize() == APR_SUCCESS);
 
     for (i = 0; i < sizeof(lockmechs) / sizeof(lockmechs[0]); i++) {
         test_mech(lockmechs[i].mech, lockmechs[i].mech_name);
     }
-    
+
     apr_terminate();
     return 0;
 }

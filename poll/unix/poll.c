@@ -69,13 +69,13 @@ static apr_int16_t get_revent(apr_int16_t event)
 #define SMALL_POLLSET_LIMIT  8
 
 APR_DECLARE(apr_status_t) apr_poll(apr_pollfd_t *aprset, apr_int32_t num,
-                                   apr_int32_t *nsds, 
+                                   apr_int32_t *nsds,
                                    apr_interval_time_t timeout)
 {
     int i, num_to_poll;
 #ifdef HAVE_VLA
     /* XXX: I trust that this is a segv when insufficient stack exists? */
-    struct pollfd pollset[num];
+    struct pollfd pollset[num + 1]; /* +1 since allocating 0 is undefined behaviour */
 #elif defined(HAVE_ALLOCA)
     struct pollfd *pollset = alloca(sizeof(struct pollfd) * num);
     if (!pollset)
@@ -114,7 +114,8 @@ APR_DECLARE(apr_status_t) apr_poll(apr_pollfd_t *aprset, apr_int32_t num,
     num_to_poll = i;
 
     if (timeout > 0) {
-        timeout /= 1000; /* convert microseconds to milliseconds */
+        /* convert microseconds to milliseconds (round up) */
+        timeout = (timeout + 999) / 1000;
     }
 
     i = poll(pollset, num_to_poll, timeout);
@@ -128,7 +129,7 @@ APR_DECLARE(apr_status_t) apr_poll(apr_pollfd_t *aprset, apr_int32_t num,
             aprset[i].rtnevents = get_revent(pollset[i].revents);
         }
     }
-    
+
 #if !defined(HAVE_VLA) && !defined(HAVE_ALLOCA)
     if (num > SMALL_POLLSET_LIMIT) {
         free(pollset);
@@ -159,7 +160,7 @@ static apr_status_t impl_pollset_create(apr_pollset_t *pollset,
                                         apr_pool_t *p,
                                         apr_uint32_t flags)
 {
-    if (flags & APR_POLLSET_THREADSAFE) {                
+    if (flags & APR_POLLSET_THREADSAFE) {
         return APR_ENOTIMPL;
     }
 
@@ -244,14 +245,15 @@ static apr_status_t impl_pollset_poll(apr_pollset_t *pollset,
         }
         return APR_SUCCESS;
     }
+#endif
+
     if (timeout > 0) {
-        timeout /= 1000;
+        timeout = (timeout + 999) / 1000;
     }
+
+#ifdef WIN32
     ret = WSAPoll(pollset->p->pollset, pollset->nelts, (int)timeout);
 #else
-    if (timeout > 0) {
-        timeout /= 1000;
-    }
     ret = poll(pollset->p->pollset, pollset->nelts, timeout);
 #endif
     if (ret < 0) {
@@ -353,7 +355,7 @@ static apr_status_t impl_pollcb_add(apr_pollcb_t *pollcb,
         get_event(descriptor->reqevents);
     pollcb->copyset[pollcb->nelts] = descriptor;
     pollcb->nelts++;
-    
+
     return APR_SUCCESS;
 }
 
@@ -403,14 +405,15 @@ static apr_status_t impl_pollcb_poll(apr_pollcb_t *pollcb,
         }
         return APR_SUCCESS;
     }
+#endif
+
     if (timeout > 0) {
-        timeout /= 1000;
+        timeout = (timeout + 999) / 1000;
     }
+
+#ifdef WIN32
     ret = WSAPoll(pollcb->pollset.ps, pollcb->nelts, (int)timeout);
 #else
-    if (timeout > 0) {
-        timeout /= 1000;
-    }
     ret = poll(pollcb->pollset.ps, pollcb->nelts, timeout);
 #endif
     if (ret < 0) {
@@ -439,7 +442,7 @@ static apr_status_t impl_pollcb_poll(apr_pollcb_t *pollcb,
                     return APR_EINTR;
                 }
 #endif
-                pollfd->rtnevents = get_revent(pollcb->pollset.ps[i].revents);                    
+                pollfd->rtnevents = get_revent(pollcb->pollset.ps[i].revents);
                 rv = func(baton, pollfd);
                 if (rv) {
                     return rv;

@@ -41,7 +41,6 @@
 #include "apr_strings.h"
 #include "apr_md4.h"
 #include "apr_lib.h"
-#include "apr_crypto.h"     /* for apr_crypto_memzero, if available */
 
 #if APR_HAVE_STRING_H
 #include <string.h>
@@ -52,7 +51,7 @@
 
 /* Constants for MD4Transform routine.
  */
- 
+
 #define S11 3
 #define S12 7
 #define S13 11
@@ -65,7 +64,7 @@
 #define S32 9
 #define S33 11
 #define S34 15
- 
+
 static void MD4Transform(apr_uint32_t state[4], const unsigned char block[64]);
 static void Encode(unsigned char *output, const apr_uint32_t *input,
                    unsigned int len);
@@ -120,7 +119,7 @@ APR_DECLARE(apr_status_t) apr_md4_init(apr_md4_ctx_t *context)
     context->state[1] = 0xefcdab89;
     context->state[2] = 0x98badcfe;
     context->state[3] = 0x10325476;
-    
+
 #if APR_HAS_XLATE
     context->xlate = NULL;
 #endif
@@ -133,7 +132,7 @@ APR_DECLARE(apr_status_t) apr_md4_init(apr_md4_ctx_t *context)
  * to be used for translating the content before calculating the
  * digest.
  */
-APR_DECLARE(apr_status_t) apr_md4_set_xlate(apr_md4_ctx_t *context, 
+APR_DECLARE(apr_status_t) apr_md4_set_xlate(apr_md4_ctx_t *context,
                                             apr_xlate_t *xlate)
 {
     apr_status_t rv;
@@ -170,7 +169,7 @@ APR_DECLARE(apr_status_t) apr_md4_update(apr_md4_ctx_t *context,
     idx = (unsigned int)((context->count[0] >> 3) & 0x3F);
 
     /* Update number of bits */
-    if ((context->count[0] += ((apr_uint32_t)inputLen << 3)) 
+    if ((context->count[0] += ((apr_uint32_t)inputLen << 3))
             < ((apr_uint32_t)inputLen << 3))
         context->count[1]++;
     context->count[1] += (apr_uint32_t)inputLen >> 29;
@@ -197,9 +196,9 @@ APR_DECLARE(apr_status_t) apr_md4_update(apr_md4_ctx_t *context,
     if (inputLen >= partLen) {
         if (context->xlate) {
             inbytes_left = outbytes_left = partLen;
-            apr_xlate_conv_buffer(context->xlate, (const char *)input, 
-                                  &inbytes_left, 
-                                  (char *)&context->buffer[idx], 
+            apr_xlate_conv_buffer(context->xlate, (const char *)input,
+                                  &inbytes_left,
+                                  (char *)&context->buffer[idx],
                                   &outbytes_left);
         }
         else {
@@ -211,7 +210,7 @@ APR_DECLARE(apr_status_t) apr_md4_update(apr_md4_ctx_t *context,
             if (context->xlate) {
                 unsigned char inp_tmp[64];
                 inbytes_left = outbytes_left = 64;
-                apr_xlate_conv_buffer(context->xlate, (const char *)&input[i], 
+                apr_xlate_conv_buffer(context->xlate, (const char *)&input[i],
                                       &inbytes_left,
                                       (char *)inp_tmp, &outbytes_left);
                 MD4Transform(context->state, inp_tmp);
@@ -229,8 +228,8 @@ APR_DECLARE(apr_status_t) apr_md4_update(apr_md4_ctx_t *context,
     /* Buffer remaining input */
     if (context->xlate) {
         inbytes_left = outbytes_left = inputLen - i;
-        apr_xlate_conv_buffer(context->xlate, (const char *)&input[i], 
-                              &inbytes_left, (char *)&context->buffer[idx], 
+        apr_xlate_conv_buffer(context->xlate, (const char *)&input[i],
+                              &inbytes_left, (char *)&context->buffer[idx],
                               &outbytes_left);
     }
     else {
@@ -271,7 +270,7 @@ APR_DECLARE(apr_status_t) apr_md4_final(
 
     /* Zeroize sensitive information. */
     memset(context, 0, sizeof(*context));
-    
+
     return APR_SUCCESS;
 }
 
@@ -358,13 +357,9 @@ static void MD4Transform(apr_uint32_t state[4], const unsigned char block[64])
     state[1] += b;
     state[2] += c;
     state[3] += d;
-    
+
     /* Zeroize sensitive information. */
-#if APU_HAVE_CRYPTO
-    apr_crypto_memzero(x, sizeof(x));
-#else
-    memset(x, 0, sizeof(x));
-#endif
+    apr_memzero_explicit(x, sizeof(x));
 }
 
 /* Encodes input (apr_uint32_t) into output (unsigned char). Assumes len is

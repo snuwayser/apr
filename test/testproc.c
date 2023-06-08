@@ -41,7 +41,7 @@ static void test_create_proc(abts_case *tc, void *data)
     rv = apr_procattr_create(&attr, p);
     ABTS_INT_EQUAL(tc, APR_SUCCESS, rv);
 
-    rv = apr_procattr_io_set(attr, APR_FULL_BLOCK, APR_FULL_BLOCK, 
+    rv = apr_procattr_io_set(attr, APR_FULL_BLOCK, APR_FULL_BLOCK,
                              APR_NO_PIPE);
     ABTS_INT_EQUAL(tc, APR_SUCCESS, rv);
 
@@ -53,8 +53,8 @@ static void test_create_proc(abts_case *tc, void *data)
 
     args[0] = "proc_child" EXTENSION;
     args[1] = NULL;
-    
-    rv = apr_proc_create(&newproc, proc_child, args, NULL, 
+
+    rv = apr_proc_create(&newproc, proc_child, args, NULL,
                          attr, p);
     ABTS_INT_EQUAL(tc, APR_SUCCESS, rv);
 
@@ -130,7 +130,7 @@ static void test_file_redir(abts_case *tc, void *data)
     args[0] = "proc_child";
     args[1] = NULL;
 
-    rv = apr_proc_create(&newproc, proc_child, args, NULL, 
+    rv = apr_proc_create(&newproc, proc_child, args, NULL,
                          attr, p);
     ABTS_INT_EQUAL(tc, APR_SUCCESS, rv);
 
@@ -169,7 +169,7 @@ static void test_proc_args(abts_case* tc, void* data)
     const char *expected;
     const char *actual;
 
-    apr_filepath_merge(&progname, NULL, "echoargs" EXTENSION, 0, p);
+    apr_filepath_merge(&progname, NULL, TESTBINPATH "echoargs" EXTENSION, 0, p);
 
     rv = apr_procattr_create(&attr, p);
     ABTS_INT_EQUAL(tc, APR_SUCCESS, rv);

@@ -16,19 +16,20 @@
 
 #include "apr_arch_atomic.h"
 
-#ifdef USE_ATOMICS_BUILTINS
+#ifdef USE_ATOMICS_BUILTINS64
 
-#if defined(__arm__) || defined(__powerpc__) || defined(__powerpc64__)
-#define WEAK_MEMORY_ORDERING 1
-#else
+#if defined(__i386__) || defined(__x86_64__) \
+    || defined(__s390__) || defined(__s390x__)
 #define WEAK_MEMORY_ORDERING 0
+#else
+#define WEAK_MEMORY_ORDERING 1
 #endif
 
 APR_DECLARE(apr_uint64_t) apr_atomic_read64(volatile apr_uint64_t *mem)
 {
-#if HAVE__ATOMIC_BUILTINS
+#if HAVE__ATOMIC_BUILTINS64
     return __atomic_load_n(mem, __ATOMIC_SEQ_CST);
-#elif WEAK_MEMORY_ORDERING
+#elif WEAK_MEMORY_ORDERING || APR_SIZEOF_VOIDP < 8
     /* No __sync_load() available => apr_atomic_add64(mem, 0) */
     return __sync_fetch_and_add(mem, 0);
 #else
@@ -38,9 +39,9 @@ APR_DECLARE(apr_uint64_t) apr_atomic_read64(volatile apr_uint64_t *mem)
 
 APR_DECLARE(void) apr_atomic_set64(volatile apr_uint64_t *mem, apr_uint64_t val)
 {
-#if HAVE__ATOMIC_BUILTINS
+#if HAVE__ATOMIC_BUILTINS64
     __atomic_store_n(mem, val, __ATOMIC_SEQ_CST);
-#elif WEAK_MEMORY_ORDERING
+#elif WEAK_MEMORY_ORDERING || APR_SIZEOF_VOIDP < 8
     /* No __sync_store() available => apr_atomic_xchg64(mem, val) */
     __sync_synchronize();
     __sync_lock_test_and_set(mem, val);
@@ -51,7 +52,7 @@ APR_DECLARE(void) apr_atomic_set64(volatile apr_uint64_t *mem, apr_uint64_t val)
 
 APR_DECLARE(apr_uint64_t) apr_atomic_add64(volatile apr_uint64_t *mem, apr_uint64_t val)
 {
-#if HAVE__ATOMIC_BUILTINS
+#if HAVE__ATOMIC_BUILTINS64
     return __atomic_fetch_add(mem, val, __ATOMIC_SEQ_CST);
 #else
     return __sync_fetch_and_add(mem, val);
@@ -60,7 +61,7 @@ APR_DECLARE(apr_uint64_t) apr_atomic_add64(volatile apr_uint64_t *mem, apr_uint6
 
 APR_DECLARE(void) apr_atomic_sub64(volatile apr_uint64_t *mem, apr_uint64_t val)
 {
-#if HAVE__ATOMIC_BUILTINS
+#if HAVE__ATOMIC_BUILTINS64
     __atomic_fetch_sub(mem, val, __ATOMIC_SEQ_CST);
 #else
     __sync_fetch_and_sub(mem, val);
@@ -69,7 +70,7 @@ APR_DECLARE(void) apr_atomic_sub64(volatile apr_uint64_t *mem, apr_uint64_t val)
 
 APR_DECLARE(apr_uint64_t) apr_atomic_inc64(volatile apr_uint64_t *mem)
 {
-#if HAVE__ATOMIC_BUILTINS
+#if HAVE__ATOMIC_BUILTINS64
     return __atomic_fetch_add(mem, 1, __ATOMIC_SEQ_CST);
 #else
     return __sync_fetch_and_add(mem, 1);
@@ -78,7 +79,7 @@ APR_DECLARE(apr_uint64_t) apr_atomic_inc64(volatile apr_uint64_t *mem)
 
 APR_DECLARE(int) apr_atomic_dec64(volatile apr_uint64_t *mem)
 {
-#if HAVE__ATOMIC_BUILTINS
+#if HAVE__ATOMIC_BUILTINS64
     return __atomic_sub_fetch(mem, 1, __ATOMIC_SEQ_CST);
 #else
     return __sync_sub_and_fetch(mem, 1);
@@ -88,7 +89,7 @@ APR_DECLARE(int) apr_atomic_dec64(volatile apr_uint64_t *mem)
 APR_DECLARE(apr_uint64_t) apr_atomic_cas64(volatile apr_uint64_t *mem, apr_uint64_t val,
                                            apr_uint64_t cmp)
 {
-#if HAVE__ATOMIC_BUILTINS
+#if HAVE__ATOMIC_BUILTINS64
     __atomic_compare_exchange_n(mem, &cmp, val, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
     return cmp;
 #else
@@ -98,7 +99,7 @@ APR_DECLARE(apr_uint64_t) apr_atomic_cas64(volatile apr_uint64_t *mem, apr_uint6
 
 APR_DECLARE(apr_uint64_t) apr_atomic_xchg64(volatile apr_uint64_t *mem, apr_uint64_t val)
 {
-#if HAVE__ATOMIC_BUILTINS
+#if HAVE__ATOMIC_BUILTINS64
     return __atomic_exchange_n(mem, val, __ATOMIC_SEQ_CST);
 #else
     __sync_synchronize();
@@ -106,4 +107,4 @@ APR_DECLARE(apr_uint64_t) apr_atomic_xchg64(volatile apr_uint64_t *mem, apr_uint
 #endif
 }
 
-#endif /* USE_ATOMICS_BUILTINS */
+#endif /* USE_ATOMICS_BUILTINS64 */

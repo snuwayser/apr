@@ -15,7 +15,7 @@
  */
 
 /*
- * Note: 
+ * Note:
  * This is the win32-specific autoconf-like config file
  * which unix creates at ./configure time.
  */
@@ -28,7 +28,7 @@
  */
 #include <apr.h>
 
-/* 
+/*
  * Add a _very_few_ declarations missing from the restricted set of headers
  * (If this list becomes extensive, re-enable the required headers in apr.hw!)
  * ACL headers were excluded by default, so include them now.
@@ -37,7 +37,7 @@
 #define SW_HIDE             0
 #endif
 
-/* For the misc.h late-loaded dynamic symbols, we need some obscure types 
+/* For the misc.h late-loaded dynamic symbols, we need some obscure types
  * Avoid dragging in wtypes.h unless it's absolutely necessary [generally
  * not with APR itself, until some GUI-related security is introduced.]
  */
@@ -84,7 +84,7 @@
 #define SIGALRM    14
 /* 15 is used for SIGTERM on windows */
 #define SIGSTKFLT  16
-#define SIGCHLD    17 
+#define SIGCHLD    17
 #define SIGCONT    18
 #define SIGSTOP    19
 #define SIGTSTP    20
@@ -136,7 +136,7 @@ APR_DECLARE_DATA int errno;
 
 /* MSVC 7.0 introduced _strtoi64 */
 #if _MSC_VER >= 1300 && _INTEGRAL_MAX_BITS >= 64
-#define APR_INT64_STRFN	      _strtoi64
+#define APR_INT64_STRFN          _strtoi64
 #endif
 
 #if APR_HAS_LARGE_FILES
@@ -171,7 +171,7 @@ APR_DECLARE_DATA int errno;
 /* Windows ODBC sql.h is always present */
 #define HAVE_SQL_H              1
 
-#define HAVE_ICONV_H 			APR_HAVE_ICONV
+#define HAVE_ICONV_H             APR_HAVE_ICONV
 
 /*
  * Windows does not have GDBM, and we always use the bundled (new) Expat

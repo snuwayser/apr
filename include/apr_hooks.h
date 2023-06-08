@@ -110,11 +110,11 @@ extern "C" {
 
 /** @} */
 
-/** macro to return the prototype of the hook function */    
+/** macro to return the prototype of the hook function */
 #define APR_IMPLEMENT_HOOK_GET_PROTO(ns,link,name) \
 link##_DECLARE(apr_array_header_t *) ns##_hook_get_##name(void)
 
-/** macro to declare the hook correctly */    
+/** macro to declare the hook correctly */
 #define APR_DECLARE_EXTERNAL_HOOK(ns,link,ret,name,args) \
 typedef ret ns##_HOOK_##name##_t args; \
 link##_DECLARE(void) ns##_hook_##name(ns##_HOOK_##name##_t *pf, \
@@ -131,7 +131,7 @@ typedef struct ns##_LINK_##name##_t \
     int nOrder; \
     } ns##_LINK_##name##_t;
 
-/** macro to declare the hook structure */    
+/** macro to declare the hook structure */
 #define APR_HOOK_STRUCT(members) \
 static struct { members } _hooks;
 
@@ -146,10 +146,10 @@ link##_DECLARE(void) ns##_hook_##name(ns##_HOOK_##name##_t *pf,const char * cons
     { \
     ns##_LINK_##name##_t *pHook; \
     if(!_hooks.link_##name) \
-	{ \
-	_hooks.link_##name=apr_array_make(apr_hook_global_pool,1,sizeof(ns##_LINK_##name##_t)); \
-	apr_hook_sort_register(#name,&_hooks.link_##name); \
-	} \
+    { \
+        _hooks.link_##name=apr_array_make(apr_hook_global_pool,1,sizeof(ns##_LINK_##name##_t)); \
+        apr_hook_sort_register(#name,&_hooks.link_##name); \
+    } \
     pHook=apr_array_push(_hooks.link_##name); \
     pHook->pFunc=pf; \
     pHook->aszPredecessors=aszPre; \
@@ -157,7 +157,7 @@ link##_DECLARE(void) ns##_hook_##name(ns##_HOOK_##name##_t *pf,const char * cons
     pHook->nOrder=nOrder; \
     pHook->szName=apr_hook_debug_current; \
     if(apr_hook_debug_enabled) \
-	apr_hook_debug_show(#name,aszPre,aszSucc); \
+        apr_hook_debug_show(#name,aszPre,aszSucc); \
     } \
     APR_IMPLEMENT_HOOK_GET_PROTO(ns,link,name) \
     { \
@@ -191,9 +191,9 @@ link##_DECLARE(void) ns##_run_##name args_decl \
         pHook=(ns##_LINK_##name##_t *)_hooks.link_##name->elts; \
         for(n=0 ; n < _hooks.link_##name->nelts ; ++n) \
             { \
-            APR_HOOK_PROBE_INVOKE(ud, ns, name, (char *)pHook[n].szName, args_use); \
-	    pHook[n].pFunc args_use; \
-            APR_HOOK_PROBE_COMPLETE(ud, ns, name, (char *)pHook[n].szName, 0, args_use); \
+                APR_HOOK_PROBE_INVOKE(ud, ns, name, (char *)pHook[n].szName, args_use); \
+                pHook[n].pFunc args_use; \
+                APR_HOOK_PROBE_COMPLETE(ud, ns, name, (char *)pHook[n].szName, 0, args_use); \
             } \
         } \
 \
@@ -296,30 +296,30 @@ link##_DECLARE(ret) ns##_run_##name args_decl \
 
     /* Hook orderings */
 /** run this hook first, before ANYTHING */
-#define APR_HOOK_REALLY_FIRST	(-10)
+#define APR_HOOK_REALLY_FIRST    (-10)
 /** run this hook first */
-#define APR_HOOK_FIRST		0
+#define APR_HOOK_FIRST           0
 /** run this hook somewhere */
-#define APR_HOOK_MIDDLE		10
+#define APR_HOOK_MIDDLE          10
 /** run this hook after every other hook which is defined*/
-#define APR_HOOK_LAST		20
+#define APR_HOOK_LAST            20
 /** run this hook last, after EVERYTHING */
-#define APR_HOOK_REALLY_LAST	30
+#define APR_HOOK_REALLY_LAST     30
 
 /**
  * The global pool used to allocate any memory needed by the hooks.
- */ 
+ */
 APR_DECLARE_DATA extern apr_pool_t *apr_hook_global_pool;
 
 /**
  * A global variable to determine if debugging information about the
  * hooks functions should be printed.
- */ 
+ */
 APR_DECLARE_DATA extern int apr_hook_debug_enabled;
 
 /**
  * The name of the module that is currently registering a function.
- */ 
+ */
 APR_DECLARE_DATA extern const char *apr_hook_debug_current;
 
 /**
@@ -327,7 +327,7 @@ APR_DECLARE_DATA extern const char *apr_hook_debug_current;
  * @param szHookName The name of the Hook the function is registered for
  * @param aHooks The array which stores all of the functions for this hook
  */
-APR_DECLARE(void) apr_hook_sort_register(const char *szHookName, 
+APR_DECLARE(void) apr_hook_sort_register(const char *szHookName,
                                         apr_array_header_t **aHooks);
 /**
  * Sort all of the registered functions for a given hook.

@@ -22,6 +22,13 @@
 #include "apr_network_io.h"
 #include "apr_poll.h"
 
+#if defined(__linux__)
+#include "arch/unix/apr_private.h"
+#endif
+#ifndef HAVE_EPOLL_WAIT_RELIABLE_TIMEOUT
+#define HAVE_EPOLL_WAIT_RELIABLE_TIMEOUT 0
+#endif
+
 #define SMALL_NUM_SOCKETS 3
 /* We can't use 64 here, because some platforms *ahem* Solaris *ahem* have
  * a default limit of 64 open file descriptors per process.  If we use
@@ -47,7 +54,7 @@ static apr_pollfd_t *pollarray_large;
  */
 static int default_pollset_impl = APR_POLLSET_DEFAULT;
 
-static void make_socket(apr_socket_t **sock, apr_sockaddr_t **sa, 
+static void make_socket(apr_socket_t **sock, apr_sockaddr_t **sa,
                         apr_port_t port, apr_pool_t *p, abts_case *tc)
 {
     apr_status_t rv;
@@ -63,15 +70,15 @@ static void make_socket(apr_socket_t **sock, apr_sockaddr_t **sa,
 }
 
 #ifdef OLD_POLL_INTERFACE
-static void check_sockets(const apr_pollfd_t *pollarray, 
-                          apr_socket_t **sockarray, int which, int pollin, 
+static void check_sockets(const apr_pollfd_t *pollarray,
+                          apr_socket_t **sockarray, int which, int pollin,
                           abts_case *tc)
 {
     apr_status_t rv;
     apr_int16_t event;
     char *str;
 
-    rv = apr_poll_revents_get(&event, sockarray[which], 
+    rv = apr_poll_revents_get(&event, sockarray[which],
                               (apr_pollfd_t *)pollarray);
     ABTS_INT_EQUAL(tc, APR_SUCCESS, rv);
     if (pollin) {
@@ -99,7 +106,7 @@ static void send_msg(apr_socket_t **sockarray, apr_sockaddr_t **sas, int which,
     ABTS_SIZE_EQUAL(tc, strlen("hello"), len);
 }
 
-static void recv_msg(apr_socket_t **sockarray, int which, apr_pool_t *p, 
+static void recv_msg(apr_socket_t **sockarray, int which, apr_pool_t *p,
                      abts_case *tc)
 {
     apr_size_t buflen = 5;
@@ -117,7 +124,7 @@ static void recv_msg(apr_socket_t **sockarray, int which, apr_pool_t *p,
     ABTS_STR_EQUAL(tc, "hello", buffer);
 }
 
-    
+
 static void create_all_sockets(abts_case *tc, void *data)
 {
     int i;
@@ -126,7 +133,7 @@ static void create_all_sockets(abts_case *tc, void *data)
         make_socket(&s[i], &sa[i], 7777 + i, p, tc);
     }
 }
-       
+
 #ifdef OLD_POLL_INTERFACE
 static void setup_small_poll(abts_case *tc, void *data)
 {
@@ -135,7 +142,7 @@ static void setup_small_poll(abts_case *tc, void *data)
 
     rv = apr_poll_setup(&pollarray, SMALL_NUM_SOCKETS, p);
     ABTS_INT_EQUAL(tc, APR_SUCCESS, rv);
-    
+
     for (i = 0; i < SMALL_NUM_SOCKETS;i++){
         ABTS_INT_EQUAL(tc, 0, pollarray[i].reqevents);
         ABTS_INT_EQUAL(tc, 0, pollarray[i].rtnevents);
@@ -153,7 +160,7 @@ static void setup_large_poll(abts_case *tc, void *data)
 
     rv = apr_poll_setup(&pollarray_large, LARGE_NUM_SOCKETS, p);
     ABTS_INT_EQUAL(tc, APR_SUCCESS, rv);
-    
+
     for (i = 0; i < LARGE_NUM_SOCKETS;i++){
         ABTS_INT_EQUAL(tc, 0, pollarray_large[i].reqevents);
         ABTS_INT_EQUAL(tc, 0, pollarray_large[i].rtnevents);
@@ -257,7 +264,7 @@ static void send_large_pollarray(abts_case *tc, void *data)
 
     send_msg(s, sa, LARGE_NUM_SOCKETS - 1, tc);
 
-    rv = apr_poll(pollarray_large, LARGE_NUM_SOCKETS, &lrv, 
+    rv = apr_poll(pollarray_large, LARGE_NUM_SOCKETS, &lrv,
                   2 * APR_USEC_PER_SEC);
     ABTS_INT_EQUAL(tc, APR_SUCCESS, rv);
 
@@ -279,7 +286,7 @@ static void recv_large_pollarray(abts_case *tc, void *data)
 
     recv_msg(s, LARGE_NUM_SOCKETS - 1, p, tc);
 
-    rv = apr_poll(pollarray_large, LARGE_NUM_SOCKETS, &lrv, 
+    rv = apr_poll(pollarray_large, LARGE_NUM_SOCKETS, &lrv,
                   2 * APR_USEC_PER_SEC);
     ABTS_INT_EQUAL(tc, 1, APR_STATUS_IS_TIMEUP(rv));
 
@@ -350,7 +357,7 @@ static void multi_event_pollset(abts_case *tc, void *data)
     rv = apr_pollset_remove(pollset, &socket_pollfd);
     ABTS_INT_EQUAL(tc, APR_SUCCESS, rv);
 }
-                         
+
 static void add_sockets_pollset(abts_case *tc, void *data)
 {
     apr_status_t rv;
@@ -416,7 +423,7 @@ static void send_middle_pollset(abts_case *tc, void *data)
     apr_status_t rv;
     const apr_pollfd_t *descs = NULL;
     int num;
-    
+
     send_msg(s, sa, 2, tc);
     send_msg(s, sa, 5, tc);
     rv = apr_pollset_poll(pollset, -1, &num, &descs);
@@ -454,7 +461,7 @@ static void send_last_pollset(abts_case *tc, void *data)
     apr_status_t rv;
     const apr_pollfd_t *descs = NULL;
     int num;
-    
+
     send_msg(s, sa, LARGE_NUM_SOCKETS - 1, tc);
     rv = apr_pollset_poll(pollset, -1, &num, &descs);
     ABTS_INT_EQUAL(tc, APR_SUCCESS, rv);
@@ -546,7 +553,7 @@ static void pollset_remove(abts_case *tc, void *data)
     ABTS_PTR_EQUAL(tc, s[2], hot_files[1].desc.s);
     ABTS_PTR_EQUAL(tc, (void *)4, hot_files[2].client_data);
     ABTS_PTR_EQUAL(tc, s[3], hot_files[2].desc.s);
-    
+
     /* now remove the pollset elements referring to desc s[2] */
     pfd.desc.s = s[2];
     pfd.client_data = (void *)999; /* not used on this call */
@@ -607,7 +614,7 @@ static void trigger_pollcb(abts_case *tc, void *data)
     apr_status_t rv;
     apr_pollfd_t socket_pollfd;
     pollcb_baton_t pcb;
-    
+
     POLLCB_PREREQ;
 
     ABTS_PTR_NOTNULL(tc, s[0]);
@@ -617,7 +624,7 @@ static void trigger_pollcb(abts_case *tc, void *data)
     socket_pollfd.client_data = s[0];
     rv = apr_pollcb_add(pollcb, &socket_pollfd);
     ABTS_INT_EQUAL(tc, APR_SUCCESS, rv);
-    
+
     send_msg(s, sa, 0, tc);
     pcb.tc = tc;
     pcb.count = 0;
@@ -639,7 +646,7 @@ static void timeout_pollcb(abts_case *tc, void *data)
     pcb.count = 0;
     pcb.tc = tc;
 
-    rv = apr_pollcb_poll(pollcb, 1, trigger_pollcb_cb, &pcb);    
+    rv = apr_pollcb_poll(pollcb, 1, trigger_pollcb_cb, &pcb);
     ABTS_INT_EQUAL(tc, 1, APR_STATUS_IS_TIMEUP(rv));
     ABTS_INT_EQUAL(tc, 0, pcb.count);
 }
@@ -653,7 +660,7 @@ static void timeout_pollin_pollcb(abts_case *tc, void *data)
     POLLCB_PREREQ;
 
     recv_msg(s, 0, p, tc);
-    
+
     ABTS_PTR_NOTNULL(tc, s[0]);
     socket_pollfd.desc_type = APR_POLL_SOCKET;
     socket_pollfd.reqevents = APR_POLLIN;
@@ -661,11 +668,11 @@ static void timeout_pollin_pollcb(abts_case *tc, void *data)
     socket_pollfd.client_data = s[0];
     rv = apr_pollcb_add(pollcb, &socket_pollfd);
     ABTS_INT_EQUAL(tc, APR_SUCCESS, rv);
-    
+
     pcb.count = 0;
     pcb.tc = tc;
-    
-    rv = apr_pollcb_poll(pollcb, 1, trigger_pollcb_cb, &pcb);    
+
+    rv = apr_pollcb_poll(pollcb, 1, trigger_pollcb_cb, &pcb);
     ABTS_INT_EQUAL(tc, 1, APR_STATUS_IS_TIMEUP(rv));
     ABTS_INT_EQUAL(tc, 0, pcb.count);
 
@@ -688,7 +695,7 @@ static void pollset_default(abts_case *tc, void *data)
 
     ABTS_INT_EQUAL(tc, APR_SUCCESS, rv1);
     ABTS_PTR_NOTNULL(tc, pollset);
-    
+
     rv1 = apr_pollset_create_ex(&pollset, 1, p, 0, APR_POLLSET_KQUEUE);
     ABTS_INT_EQUAL(tc, APR_SUCCESS, rv1);
     ABTS_PTR_NOTNULL(tc, pollset);
@@ -705,13 +712,13 @@ static void pollset_default(abts_case *tc, void *data)
     if (rv1 == APR_SUCCESS) {
         ABTS_PTR_NOTNULL(tc, pollset);
     }
-    
+
     rv2 = apr_pollset_create_ex(&pollset, 1, p, APR_POLLSET_NODEFAULT,
                                APR_POLLSET_KQUEUE);
     if (rv2 == APR_SUCCESS) {
         ABTS_PTR_NOTNULL(tc, pollset);
     }
-    
+
     ABTS_ASSERT(tc,
                 "failure using APR_POLLSET_NODEFAULT with unsupported method",
                 rv1 != APR_SUCCESS || rv2 != APR_SUCCESS);
@@ -736,7 +743,7 @@ static void pollcb_default(abts_case *tc, void *data)
 
     ABTS_INT_EQUAL(tc, APR_SUCCESS, rv1);
     ABTS_PTR_NOTNULL(tc, pollcb);
-    
+
     rv1 = apr_pollcb_create_ex(&pollcb, 1, p, 0, APR_POLLSET_KQUEUE);
     ABTS_INT_EQUAL(tc, APR_SUCCESS, rv1);
     ABTS_PTR_NOTNULL(tc, pollcb);
@@ -753,13 +760,13 @@ static void pollcb_default(abts_case *tc, void *data)
     if (rv1 == APR_SUCCESS) {
         ABTS_PTR_NOTNULL(tc, pollcb);
     }
-    
+
     rv2 = apr_pollcb_create_ex(&pollcb, 1, p, APR_POLLSET_NODEFAULT,
                                APR_POLLSET_KQUEUE);
     if (rv2 == APR_SUCCESS) {
         ABTS_PTR_NOTNULL(tc, pollcb);
     }
-    
+
     ABTS_ASSERT(tc,
                 "failure using APR_POLLSET_NODEFAULT with unsupported method",
                 rv1 != APR_SUCCESS || rv2 != APR_SUCCESS);
@@ -854,6 +861,16 @@ static void pollcb_wakeup(abts_case *tc, void *data)
     ABTS_INT_EQUAL(tc, APR_EINTR, rv);
 }
 
+#define JUSTSLEEP_DELAY apr_time_from_msec(200)
+#if HAVE_EPOLL_WAIT_RELIABLE_TIMEOUT
+#define JUSTSLEEP_ENOUGH(ts, te) \
+    ((te) - (ts) >= JUSTSLEEP_DELAY)
+#else
+#define JUSTSLEEP_JIFFY apr_time_from_msec(10)
+#define JUSTSLEEP_ENOUGH(ts, te) \
+    ((te) - (ts) >= JUSTSLEEP_DELAY - JUSTSLEEP_JIFFY)
+#endif
+
 static void justsleep(abts_case *tc, void *data)
 {
     apr_int32_t nsds;
@@ -872,13 +889,13 @@ static void justsleep(abts_case *tc, void *data)
 
     nsds = 1;
     t1 = apr_time_now();
-    rv = apr_poll(NULL, 0, &nsds, apr_time_from_msec(200));
+    rv = apr_poll(NULL, 0, &nsds, JUSTSLEEP_DELAY);
     t2 = apr_time_now();
     ABTS_INT_EQUAL(tc, 1, APR_STATUS_IS_TIMEUP(rv));
     ABTS_INT_EQUAL(tc, 0, nsds);
     ABTS_ASSERT(tc,
                 "apr_poll() didn't sleep",
-                (t2 - t1) > apr_time_from_msec(100));
+                JUSTSLEEP_ENOUGH(t1, t2));
 
     for (i = 0; i < sizeof methods / sizeof methods[0]; i++) {
         rv = apr_pollset_create_ex(&pollset, 5, p, 0, methods[i]);
@@ -887,14 +904,13 @@ static void justsleep(abts_case *tc, void *data)
 
             nsds = 1;
             t1 = apr_time_now();
-            rv = apr_pollset_poll(pollset, apr_time_from_msec(200), &nsds,
-                                  &hot_files);
+            rv = apr_pollset_poll(pollset, JUSTSLEEP_DELAY, &nsds, &hot_files);
             t2 = apr_time_now();
             ABTS_INT_EQUAL(tc, 1, APR_STATUS_IS_TIMEUP(rv));
             ABTS_INT_EQUAL(tc, 0, nsds);
             ABTS_ASSERT(tc,
                         "apr_pollset_poll() didn't sleep",
-                        (t2 - t1) > apr_time_from_msec(100));
+                        JUSTSLEEP_ENOUGH(t1, t2));
 
             rv = apr_pollset_destroy(pollset);
             ABTS_INT_EQUAL(tc, APR_SUCCESS, rv);
@@ -905,12 +921,12 @@ static void justsleep(abts_case *tc, void *data)
             ABTS_INT_EQUAL(tc, APR_SUCCESS, rv);
 
             t1 = apr_time_now();
-            rv = apr_pollcb_poll(pollcb, apr_time_from_msec(200), NULL, NULL);
+            rv = apr_pollcb_poll(pollcb, JUSTSLEEP_DELAY, NULL, NULL);
             t2 = apr_time_now();
             ABTS_INT_EQUAL(tc, 1, APR_STATUS_IS_TIMEUP(rv));
             ABTS_ASSERT(tc,
                         "apr_pollcb_poll() didn't sleep",
-                        (t2 - t1) > apr_time_from_msec(100));
+                        JUSTSLEEP_ENOUGH(t1, t2));
 
             /* no apr_pollcb_destroy() */
         }

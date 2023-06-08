@@ -56,7 +56,7 @@ static void * APR_THREAD_FUNC thread_func1(apr_thread_t *thd, void *data)
     }
     apr_thread_exit(thd, exit_ret_val);
     return NULL;
-} 
+}
 
 static void thread_init(abts_case *tc, void *data)
 {
@@ -65,7 +65,7 @@ static void thread_init(abts_case *tc, void *data)
     rv = apr_thread_once_init(&control, p);
     ABTS_INT_EQUAL(tc, APR_SUCCESS, rv);
 
-    rv = apr_thread_mutex_create(&thread_lock, APR_THREAD_MUTEX_DEFAULT, p); 
+    rv = apr_thread_mutex_create(&thread_lock, APR_THREAD_MUTEX_DEFAULT, p);
     ABTS_INT_EQUAL(tc, APR_SUCCESS, rv);
 }
 
@@ -107,6 +107,36 @@ static void check_thread_once(abts_case *tc, void *data)
     ABTS_INT_EQUAL(tc, 1, value);
 }
 
+static void thread_name(abts_case *tc, void *data)
+{
+    apr_status_t rv;
+    char *name;
+
+    rv = apr_thread_name_set("thread-1", NULL, p);
+    if (rv == APR_ENOTIMPL) {
+        ABTS_NOT_IMPL(tc, "apr_thread_name_set is not implemented.")
+        return ;
+    }
+
+    ABTS_INT_EQUAL(tc, APR_SUCCESS, rv);
+
+    rv = apr_thread_name_get(&name, NULL, p);
+    ABTS_INT_EQUAL(tc, APR_SUCCESS, rv);
+    ABTS_STR_EQUAL(tc, "thread-1", name);
+
+    rv = apr_thread_name_set("thread-1", NULL, p);
+    if (rv == APR_ENOTIMPL) {
+        ABTS_NOT_IMPL(tc, "apr_thread_name_set is not implemented.")
+        return ;
+    }
+
+    ABTS_INT_EQUAL(tc, APR_SUCCESS, rv);
+
+    rv = apr_thread_name_get(&name, NULL, p);
+    ABTS_INT_EQUAL(tc, APR_SUCCESS, rv);
+    ABTS_STR_EQUAL(tc, "thread-1", name);
+}
+
 #else
 
 static void threads_not_impl(abts_case *tc, void *data)
@@ -128,6 +158,7 @@ abts_suite *testthread(abts_suite *suite)
     abts_run_test(suite, join_threads, NULL);
     abts_run_test(suite, check_locks, NULL);
     abts_run_test(suite, check_thread_once, NULL);
+    abts_run_test(suite, thread_name, NULL);
 #endif
 
     return suite;

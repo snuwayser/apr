@@ -27,7 +27,7 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-/** 
+/**
  * @defgroup APR_Util_OPT_HOOK Optional Hook Functions
  * @ingroup APR_Util_Hook
  * @{
@@ -79,7 +79,6 @@ APR_DECLARE(apr_array_header_t *) apr_optional_hook_get(const char *szName);
  *
  * @param ns The namespace prefix of the hook functions
  * @param link The linkage declaration prefix of the hook
- * @param ret The type of the return value of the hook
  * @param ret The type of the return value of the hook
  * @param name The name of the hook
  * @param args_decl The declaration of the arguments for the hook

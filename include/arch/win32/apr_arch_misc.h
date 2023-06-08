@@ -67,7 +67,7 @@ struct apr_other_child_rec_t {
  */
 extern int APR_DECLARE_DATA apr_app_init_complete;
 
-int apr_wastrtoastr(char const * const * *retarr, 
+int apr_wastrtoastr(char const * const * *retarr,
                     wchar_t const * const *arr, int args);
 
 /* Platform specific designation of run time os version.
@@ -84,7 +84,7 @@ typedef enum {
         APR_WIN_98_SE =    16,
         APR_WIN_ME =       18,
 
-	APR_WIN_UNICODE =  20, /* Prior versions support only narrow chars */
+        APR_WIN_UNICODE =  20, /* Prior versions support only narrow chars */
 
         APR_WIN_CE_3 =     23, /* CE is an odd beast, not supporting */
                                /* some pre-NT features, such as the    */
@@ -150,7 +150,7 @@ static APR_INLINE void* apr_realloc_dbg(void* userData, size_t newSize,
 #endif  /* ! _MSC_VER */
 
 /* Wrapper around WaitForSingleObject() that accepts apr_interval_time_t
- * in microseconds instead of milliseconds. Values < 0 mean wait 
+ * in microseconds instead of milliseconds. Values < 0 mean wait
  * forever, 0 means do not wait at all. */
 DWORD apr_wait_for_single_object(HANDLE handle, apr_interval_time_t timeout);
 
@@ -267,6 +267,7 @@ APR_DECLARE_LATE_DLL_FUNC(DLL_WINBASEAPI, BOOL, WINAPI, Process32NextW, 0, (
 
 #define HAVE_POLL   1
 
+#if HAVE_IF_NAMETOINDEX
 #ifdef if_nametoindex
 #undef if_nametoindex
 #endif
@@ -274,7 +275,9 @@ APR_DECLARE_LATE_DLL_FUNC(DLL_IPHLPAPI, NET_IFINDEX, WINAPI, if_nametoindex, 0, 
     IN PCSTR InterfaceName),
     (InterfaceName));
 #define if_nametoindex apr_winapi_if_nametoindex
+#endif
 
+#if HAVE_IF_INDEXTONAME
 #ifdef if_indextoname
 #undef if_indextoname
 #endif
@@ -283,10 +286,21 @@ APR_DECLARE_LATE_DLL_FUNC(DLL_IPHLPAPI, PCHAR, NETIOAPI_API_, if_indextoname, 0,
     PCHAR       InterfaceName),
     (InterfaceIndex, InterfaceName));
 #define if_indextoname apr_winapi_if_indextoname
+#endif
 
 APR_DECLARE_LATE_DLL_FUNC(DLL_API_MS_WIN_DOWNLEVEL_SHELL32_L1_1_0, LPWSTR *,
                           STDAPICALLTYPE, CommandLineToArgvW, 0,
                           (LPCWSTR lpCmdLine, int *pNumArgs),
                           (lpCmdLine, pNumArgs));
+
+APR_DECLARE_LATE_DLL_FUNC(DLL_WINBASEAPI, BOOL, WINAPI, GetThreadDescription, 0, (
+                          HANDLE hThread,
+                          PWSTR *ppszThreadDescription),
+                          (hThread, ppszThreadDescription));
+
+APR_DECLARE_LATE_DLL_FUNC(DLL_WINBASEAPI, BOOL, WINAPI, SetThreadDescription, 0, (
+                          HANDLE hThread,
+                          PCWSTR lpThreadDescription),
+                          (hThread, lpThreadDescription));
 
 #endif  /* ! MISC_H */

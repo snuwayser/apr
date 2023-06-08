@@ -23,7 +23,8 @@
 #ifdef HAVE_PROCESS_H
 #include <process.h>
 #endif
-#include "apr_arch_misc.h"   
+#include "apr_arch_misc.h"
+#include "apr_arch_utf8.h"
 
 /* Chosen for us by apr_initialize */
 DWORD tls_apr_thread = 0;
@@ -31,7 +32,7 @@ DWORD tls_apr_thread = 0;
 APR_DECLARE(apr_status_t) apr_threadattr_create(apr_threadattr_t **new,
                                                 apr_pool_t *pool)
 {
-    (*new) = (apr_threadattr_t *)apr_palloc(pool, 
+    (*new) = (apr_threadattr_t *)apr_palloc(pool,
               sizeof(apr_threadattr_t));
 
     if ((*new) == NULL) {
@@ -72,11 +73,18 @@ APR_DECLARE(apr_status_t) apr_threadattr_guardsize_set(apr_threadattr_t *attr,
     return APR_ENOTIMPL;
 }
 
+APR_DECLARE(apr_status_t) apr_threadattr_max_free_set(apr_threadattr_t *attr,
+                                                      apr_size_t size)
+{
+    attr->max_free = size;
+    return APR_SUCCESS;
+}
+
 #if APR_HAS_THREAD_LOCAL
 static APR_THREAD_LOCAL apr_thread_t *current_thread = NULL;
 #endif
 
-static void *dummy_worker(void *opaque)
+static unsigned int APR_THREAD_FUNC dummy_worker(void *opaque)
 {
     apr_thread_t *thd = (apr_thread_t *)opaque;
     void *ret;
@@ -92,7 +100,7 @@ static void *dummy_worker(void *opaque)
         apr_pool_destroy(thd->pool);
     }
 
-    return ret;
+    return (unsigned int)(apr_uintptr_t)ret;
 }
 
 static apr_status_t alloc_thread(apr_thread_t **new,
@@ -102,27 +110,22 @@ static apr_status_t alloc_thread(apr_thread_t **new,
 {
     apr_status_t stat;
     apr_abortfunc_t abort_fn = apr_pool_abort_get(pool);
-    apr_allocator_t *allocator;
     apr_pool_t *p;
 
     /* The thread can be detached anytime (from the creation or later with
      * apr_thread_detach), so it needs its own pool and allocator to not
      * depend on a parent pool which could be destroyed before the thread
      * exits. The allocator needs no mutex obviously since the pool should
-     * not be used nor create children pools outside the thread.
+     * not be used nor create children pools outside the thread. Passing
+     * NULL allocator will create one like that.
      */
-    stat = apr_allocator_create(&allocator);
+    stat = apr_pool_create_unmanaged_ex(&p, abort_fn, NULL);
     if (stat != APR_SUCCESS) {
-        if (abort_fn)
-            abort_fn(stat);
         return stat;
     }
-    stat = apr_pool_create_unmanaged_ex(&p, abort_fn, allocator);
-    if (stat != APR_SUCCESS) {
-        apr_allocator_destroy(allocator);
-        return stat;
+    if (attr && attr->max_free) {
+        apr_allocator_max_free_set(apr_pool_allocator_get(p), attr->max_free);
     }
-    apr_allocator_owner_set(allocator, p);
 
     (*new) = (apr_thread_t *)apr_pcalloc(p, sizeof(apr_thread_t));
     if ((*new) == NULL) {
@@ -156,18 +159,20 @@ APR_DECLARE(apr_status_t) apr_thread_create(apr_thread_t **new,
      */
     if ((handle = (HANDLE)_beginthreadex(NULL,
                         (DWORD) (attr ? attr->stacksize : 0),
-                        (unsigned int (APR_THREAD_FUNC *)(void *))dummy_worker,
-                        (*new), 0, &temp)) == 0) {
+                        dummy_worker,
+                        (*new), CREATE_SUSPENDED, &temp)) == 0) {
         stat = APR_FROM_OS_ERROR(_doserrno);
         apr_pool_destroy((*new)->pool);
         return stat;
     }
 
     if (attr && attr->detach) {
+        ResumeThread(handle);
         CloseHandle(handle);
     }
     else {
         (*new)->td = handle;
+        ResumeThread(handle);
     }
 
     return APR_SUCCESS;
@@ -177,6 +182,7 @@ APR_DECLARE(apr_status_t) apr_thread_current_create(apr_thread_t **current,
                                                     apr_threadattr_t *attr,
                                                     apr_pool_t *pool)
 {
+#if APR_HAS_THREAD_LOCAL
     apr_status_t stat;
 
     *current = apr_thread_current();
@@ -194,10 +200,11 @@ APR_DECLARE(apr_status_t) apr_thread_current_create(apr_thread_t **current,
         (*current)->td = apr_os_thread_current();
     }
 
-#if APR_HAS_THREAD_LOCAL
     current_thread = *current;
-#endif
     return APR_SUCCESS;
+#else
+    return APR_ENOTIMPL;
+#endif
 }
 
 APR_DECLARE(void) apr_thread_current_after_fork(void)
@@ -234,7 +241,7 @@ APR_DECLARE(apr_status_t) apr_thread_join(apr_status_t *retval,
 {
     apr_status_t rv = APR_SUCCESS;
     DWORD ret;
-    
+
     if (!thd->td) {
         /* Can not join on detached threads */
         return APR_DETACH;
@@ -299,6 +306,77 @@ APR_DECLARE(apr_status_t) apr_thread_data_set(void *data, const char *key,
     return apr_pool_userdata_set(data, key, cleanup, thread->pool);
 }
 
+APR_DECLARE(apr_status_t) apr_thread_name_set(const char *name,
+                                              apr_thread_t *thread,
+                                              apr_pool_t *pool)
+{
+    apr_wchar_t *wname;
+    apr_size_t wname_len;
+    apr_size_t name_len;
+    apr_status_t rv;
+    HANDLE thread_handle;
+
+    if (!APR_HAVE_LATE_DLL_FUNC(SetThreadDescription)) {
+	    return APR_ENOTIMPL;
+    }
+
+    if (thread) {
+        thread_handle = thread->td;
+    }
+    else {
+        thread_handle = GetCurrentThread();
+    }
+
+    name_len = strlen(name) + 1;
+    wname_len = name_len;
+    wname = apr_palloc(pool, wname_len * sizeof(apr_wchar_t));
+    rv = apr_conv_utf8_to_ucs2(name, &name_len, wname, &wname_len);
+    if (rv) {
+        return rv;
+    }
+
+    if (!apr_winapi_SetThreadDescription(thread_handle, wname)) {
+        return apr_get_os_error();
+    }
+
+    return APR_SUCCESS;
+}
+
+APR_DECLARE(apr_status_t) apr_thread_name_get(char **name,
+                                              apr_thread_t *thread,
+                                              apr_pool_t *pool)
+{
+    apr_wchar_t *wname;
+    apr_size_t wname_len;
+    apr_size_t name_len;
+    apr_status_t rv;
+    HANDLE thread_handle;
+
+    if (!APR_HAVE_LATE_DLL_FUNC(GetThreadDescription)) {
+	    return APR_ENOTIMPL;
+    }
+
+    if (thread) {
+        thread_handle = thread->td;
+    }
+    else {
+        thread_handle = GetCurrentThread();
+    }
+
+    if (!apr_winapi_GetThreadDescription(thread_handle, &wname)) {
+        return apr_get_os_error();
+    }
+
+    wname_len = wcslen(wname) + 1;
+
+    name_len = wname_len * 3;
+    *name = apr_palloc(pool, name_len);
+
+    rv = apr_conv_ucs2_to_utf8(wname, &wname_len, *name, &name_len);
+    LocalFree(wname);
+ 
+    return rv;
+}
 
 APR_DECLARE(apr_os_thread_t) apr_os_thread_current(void)
 {
@@ -308,11 +386,11 @@ APR_DECLARE(apr_os_thread_t) apr_os_thread_current(void)
     if (hthread) {
         return hthread;
     }
-    
+
     hproc = GetCurrentProcess();
     hthread = GetCurrentThread();
-    if (!DuplicateHandle(hproc, hthread, 
-                         hproc, &hthread, 0, FALSE, 
+    if (!DuplicateHandle(hproc, hthread,
+                         hproc, &hthread, 0, FALSE,
                          DUPLICATE_SAME_ACCESS)) {
         return NULL;
     }
@@ -371,10 +449,8 @@ static BOOL WINAPI init_once_callback(PINIT_ONCE InitOnce,
 APR_DECLARE(apr_status_t) apr_thread_once(apr_thread_once_t *control,
                                           void (*func)(void))
 {
-    PVOID lpContext;
-
     if (!InitOnceExecuteOnce(&control->once, init_once_callback, func,
-                             &lpContext)) {
+                             NULL)) {
         return apr_get_os_error();
     }
 

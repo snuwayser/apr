@@ -160,7 +160,7 @@ APR_DECLARE_NONSTD(char *) apr_pstrcat(apr_pool_t *a, ...)
         else {
             len = strlen(argp);
         }
- 
+
         memcpy(cp, argp, len);
         cp += len;
     }
@@ -196,7 +196,7 @@ APR_DECLARE(char *) apr_pstrcatv(apr_pool_t *a, const struct iovec *vec,
 
     /* Allocate the required string */
     res = (char *) apr_palloc(a, len + 1);
-    
+
     /* Pass two --- copy the argument strings into the result space */
     src = vec;
     dst = res;
@@ -210,6 +210,38 @@ APR_DECLARE(char *) apr_pstrcatv(apr_pool_t *a, const struct iovec *vec,
     *dst = '\0';
 
     return res;
+}
+
+#if defined(HAVE_WEAK_SYMBOLS)
+void apr__memzero_explicit(void *buffer, apr_size_t size);
+
+__attribute__ ((weak))
+void apr__memzero_explicit(void *buffer, apr_size_t size)
+{
+    memset(buffer, 0, size);
+}
+#endif
+
+APR_DECLARE(apr_status_t) apr_memzero_explicit(void *buffer, apr_size_t size)
+{
+#if defined(WIN32)
+    SecureZeroMemory(buffer, size);
+#elif defined(HAVE_EXPLICIT_BZERO)
+    explicit_bzero(buffer, size);
+#elif defined(HAVE_MEMSET_S)
+    if (size) {
+        return memset_s(buffer, (rsize_t)size, 0, (rsize_t)size);
+    }
+#elif defined(HAVE_WEAK_SYMBOLS)
+    apr__memzero_explicit(buffer, size);
+#else
+    apr_size_t i;
+    volatile unsigned char *volatile ptr = buffer;
+    for (i = 0; i < size; ++i) {
+        ptr[i] = 0;
+    }
+#endif
+    return APR_SUCCESS;
 }
 
 #if (!APR_HAVE_MEMCHR)
@@ -293,7 +325,7 @@ APR_DECLARE(apr_int64_t) apr_strtoi64(const char *nptr, char **endptr, int base)
      * in both the mult and add/sub operation.  Unlike the bsd impl,
      * we also work strictly in a signed int64 word as we haven't
      * implemented the unsigned type in win32.
-     * 
+     *
      * Set 'any' if any `digits' consumed; make it negative to indicate
      * overflow.
      */
@@ -320,7 +352,7 @@ APR_DECLARE(apr_int64_t) apr_strtoi64(const char *nptr, char **endptr, int base)
 	else if (c >= 's' && c <= 'z')
 	    c -= 'z' - 28;
 #else
-#error "CANNOT COMPILE apr_strtoi64(), only ASCII and EBCDIC supported" 
+#error "CANNOT COMPILE apr_strtoi64(), only ASCII and EBCDIC supported"
 #endif
 	else
 	    break;

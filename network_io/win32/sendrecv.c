@@ -25,10 +25,10 @@
 #endif
 
 /* MAX_SEGMENT_SIZE is the maximum amount of data that will be sent to a client
- * in one call of TransmitFile. This number must be small enough to give the 
+ * in one call of TransmitFile. This number must be small enough to give the
  * slowest client time to receive the data before the socket timeout triggers.
  * The same problem can exist with apr_socket_send(). In that case, we rely on
- * the application to adjust socket timeouts and max send segment 
+ * the application to adjust socket timeouts and max send segment
  * sizes appropriately.
  * For example, Apache will in most cases call apr_socket_send() with less
  * than 8193 bytes.
@@ -61,7 +61,7 @@ APR_DECLARE(apr_status_t) apr_socket_send(apr_socket_t *sock, const char *buf,
 
 
 APR_DECLARE(apr_status_t) apr_socket_recv(apr_socket_t *sock, char *buf,
-                                          apr_size_t *len) 
+                                          apr_size_t *len)
 {
     apr_ssize_t rv;
     WSABUF wsaData;
@@ -90,51 +90,36 @@ APR_DECLARE(apr_status_t) apr_socket_sendv(apr_socket_t *sock,
 {
     apr_status_t rc = APR_SUCCESS;
     apr_ssize_t rv;
-    apr_size_t cur_len;
-    apr_int32_t nvec = 0;
-    int i, j = 0;
+    apr_size_t total_len;
+    apr_int32_t i;
     DWORD dwBytes = 0;
     WSABUF *pWsaBuf;
 
+    total_len = 0;
     for (i = 0; i < in_vec; i++) {
-        cur_len = vec[i].iov_len;
-        nvec++;
-        while (cur_len > APR_DWORD_MAX) {
-            nvec++;
-            cur_len -= APR_DWORD_MAX;
-        } 
+        apr_size_t iov_len = vec[i].iov_len;
+        if (iov_len > (apr_size_t)MAXDWORD - total_len) {
+            /* WSASend() returns NumberOfBytesSent as DWORD, so the total size
+               should be less than that. */
+            return APR_EINVAL;
+        }
+        total_len += iov_len;
     }
 
-    pWsaBuf = (nvec <= WSABUF_ON_STACK) ? _alloca(sizeof(WSABUF) * (nvec))
-                                         : malloc(sizeof(WSABUF) * (nvec));
+    pWsaBuf = (in_vec <= WSABUF_ON_STACK) ? _alloca(sizeof(WSABUF) * (in_vec))
+                                          : malloc(sizeof(WSABUF) * (in_vec));
     if (!pWsaBuf)
         return APR_ENOMEM;
 
     for (i = 0; i < in_vec; i++) {
-        char * base = vec[i].iov_base;
-        cur_len = vec[i].iov_len;
-        
-        do {
-            if (cur_len > APR_DWORD_MAX) {
-                pWsaBuf[j].buf = base;
-                pWsaBuf[j].len = APR_DWORD_MAX;
-                cur_len -= APR_DWORD_MAX;
-                base += APR_DWORD_MAX;
-            }
-            else {
-                pWsaBuf[j].buf = base;
-                pWsaBuf[j].len = (DWORD)cur_len;
-                cur_len = 0;
-            }
-            j++;
-
-        } while (cur_len > 0);
+        pWsaBuf[i].buf = vec[i].iov_base;
+        pWsaBuf[i].len = (ULONG) vec[i].iov_len;
     }
-    rv = WSASend(sock->socketdes, pWsaBuf, nvec, &dwBytes, 0, NULL, NULL);
+    rv = WSASend(sock->socketdes, pWsaBuf, in_vec, &dwBytes, 0, NULL, NULL);
     if (rv == SOCKET_ERROR) {
         rc = apr_get_netos_error();
     }
-    if (nvec > WSABUF_ON_STACK) 
+    if (in_vec > WSABUF_ON_STACK)
         free(pWsaBuf);
 
     *nbytes = dwBytes;
@@ -144,13 +129,13 @@ APR_DECLARE(apr_status_t) apr_socket_sendv(apr_socket_t *sock,
 
 APR_DECLARE(apr_status_t) apr_socket_sendto(apr_socket_t *sock,
                                             apr_sockaddr_t *where,
-                                            apr_int32_t flags, const char *buf, 
+                                            apr_int32_t flags, const char *buf,
                                             apr_size_t *len)
 {
     apr_ssize_t rv;
 
-    rv = sendto(sock->socketdes, buf, (int)*len, flags, 
-                (const struct sockaddr*)&where->sa, 
+    rv = sendto(sock->socketdes, buf, (int)*len, flags,
+                (const struct sockaddr*)&where->sa,
                 where->salen);
     if (rv == SOCKET_ERROR) {
         *len = 0;
@@ -162,23 +147,23 @@ APR_DECLARE(apr_status_t) apr_socket_sendto(apr_socket_t *sock,
 }
 
 
-APR_DECLARE(apr_status_t) apr_socket_recvfrom(apr_sockaddr_t *from, 
+APR_DECLARE(apr_status_t) apr_socket_recvfrom(apr_sockaddr_t *from,
                                               apr_socket_t *sock,
-                                              apr_int32_t flags, 
+                                              apr_int32_t flags,
                                               char *buf, apr_size_t *len)
 {
     apr_ssize_t rv;
 
     from->salen = sizeof(from->sa);
 
-    rv = recvfrom(sock->socketdes, buf, (int)*len, flags, 
+    rv = recvfrom(sock->socketdes, buf, (int)*len, flags,
                   (struct sockaddr*)&from->sa, &from->salen);
     if (rv == SOCKET_ERROR) {
         (*len) = 0;
         return apr_get_netos_error();
     }
 
-    apr_sockaddr_vars_set(from, from->sa.sin.sin_family, 
+    apr_sockaddr_vars_set(from, from->sa.sin.sin_family,
                           ntohs(from->sa.sin.sin_port));
 
     (*len) = rv;
@@ -190,8 +175,8 @@ APR_DECLARE(apr_status_t) apr_socket_recvfrom(apr_sockaddr_t *from,
 
 
 #if APR_HAS_SENDFILE
-static apr_status_t collapse_iovec(char **off, apr_size_t *len, 
-                                   struct iovec *iovec, int numvec, 
+static apr_status_t collapse_iovec(char **off, apr_size_t *len,
+                                   struct iovec *iovec, int numvec,
                                    char *buf, apr_size_t buflen)
 {
     if (numvec == 1) {
@@ -221,9 +206,9 @@ static apr_status_t collapse_iovec(char **off, apr_size_t *len,
 
 
 /*
- * apr_status_t apr_socket_sendfile(apr_socket_t *, apr_file_t *, apr_hdtr_t *, 
+ * apr_status_t apr_socket_sendfile(apr_socket_t *, apr_file_t *, apr_hdtr_t *,
  *                                 apr_off_t *, apr_size_t *, apr_int32_t flags)
- *    Send a file from an open file descriptor to a socket, along with 
+ *    Send a file from an open file descriptor to a socket, along with
  *    optional headers and trailers
  * arg 1) The socket to which we're writing
  * arg 2) The open file from which to read
@@ -232,12 +217,12 @@ static apr_status_t collapse_iovec(char **off, apr_size_t *len,
  * arg 5) Number of bytes to send out of the file
  * arg 6) APR flags that are mapped to OS specific flags
  */
-APR_DECLARE(apr_status_t) apr_socket_sendfile(apr_socket_t *sock, 
+APR_DECLARE(apr_status_t) apr_socket_sendfile(apr_socket_t *sock,
                                               apr_file_t *file,
                                               apr_hdtr_t *hdtr,
                                               apr_off_t *offset,
                                               apr_size_t *len,
-                                              apr_int32_t flags) 
+                                              apr_int32_t flags)
 {
     apr_status_t status = APR_SUCCESS;
     apr_status_t rv;
@@ -278,7 +263,7 @@ APR_DECLARE(apr_status_t) apr_socket_sendfile(apr_socket_t *sock,
      * Long TransmitFile requests are defined as requests that require more
      * than a single read from the file or a cache; the request therefore
      * depends on the size of the file and the specified length of the send
-     * packet. 
+     * packet.
      *
      * Use of TF_USE_KERNEL_APC can deliver significant performance benefits.
      * It is possible (though unlikely), however, that the thread in which
@@ -296,7 +281,7 @@ APR_DECLARE(apr_status_t) apr_socket_sendfile(apr_socket_t *sock,
     /* Handle the goofy case of sending headers/trailers and a zero byte file */
     if (!bytes_to_send && hdtr) {
         if (hdtr->numheaders) {
-            rv = apr_socket_sendv(sock, hdtr->headers, hdtr->numheaders, 
+            rv = apr_socket_sendv(sock, hdtr->headers, hdtr->numheaders,
                                   &nbytes);
             if (rv != APR_SUCCESS)
                 return rv;
@@ -319,8 +304,8 @@ APR_DECLARE(apr_status_t) apr_socket_sendfile(apr_socket_t *sock,
         apr_size_t head_length = tfb.HeadLength;
         ptfb = &tfb;
         nbytes = 0;
-        rv = collapse_iovec((char **)&ptfb->Head, &head_length, 
-                            hdtr->headers, hdtr->numheaders, 
+        rv = collapse_iovec((char **)&ptfb->Head, &head_length,
+                            hdtr->headers, hdtr->numheaders,
                             hdtrbuf, sizeof(hdtrbuf));
 
         tfb.HeadLength = (DWORD)head_length;
@@ -371,7 +356,7 @@ APR_DECLARE(apr_status_t) apr_socket_sendfile(apr_socket_t *sock,
         sock->overlapped->Offset = (DWORD)(curoff);
 #if APR_HAS_LARGE_FILES
         sock->overlapped->OffsetHigh = (DWORD)(curoff >> 32);
-#endif  
+#endif
         /* XXX BoundsChecker claims dwFlags must not be zero. */
         rv = pfn_transmit_file(sock->socketdes,  /* socket */
                                file->filehand, /* open file descriptor of the file to be sent */
@@ -383,10 +368,10 @@ APR_DECLARE(apr_status_t) apr_socket_sendfile(apr_socket_t *sock,
         if (!rv) {
             status = apr_get_netos_error();
             if ((status == APR_FROM_OS_ERROR(ERROR_IO_PENDING)) ||
-                (status == APR_FROM_OS_ERROR(WSA_IO_PENDING))) 
+                (status == APR_FROM_OS_ERROR(WSA_IO_PENDING)))
             {
-                rv = WaitForSingleObject(sock->overlapped->hEvent, 
-                                         (DWORD)(sock->timeout >= 0 
+                rv = WaitForSingleObject(sock->overlapped->hEvent,
+                                         (DWORD)(sock->timeout >= 0
                                                  ? sock->timeout_ms : INFINITE));
                 if (rv == WAIT_OBJECT_0) {
                     status = APR_SUCCESS;

@@ -31,13 +31,13 @@
 
 #define SHELL_PATH "/bin/sh"
 
-#define PTHREAD_CANCEL_AYNCHRONOUS  CANCEL_ASYNCH; 
-#define PTHREAD_CANCEL_DEFERRED     CANCEL_DEFER; 
-                                   
-#define PTHREAD_CANCEL_ENABLE       CANCEL_ENABLE; 
-#define PTHREAD_CANCEL_DISABLE      CANCEL_DISABLE; 
+#define PTHREAD_CANCEL_AYNCHRONOUS  CANCEL_ASYNCH;
+#define PTHREAD_CANCEL_DEFERRED     CANCEL_DEFER;
 
-#define BEOS_MAX_DATAKEYS	128
+#define PTHREAD_CANCEL_ENABLE       CANCEL_ENABLE;
+#define PTHREAD_CANCEL_DISABLE      CANCEL_DISABLE;
+
+#define BEOS_MAX_DATAKEYS           128
 
 struct apr_thread_t {
     apr_pool_t *pool;
@@ -53,25 +53,26 @@ struct apr_threadattr_t {
     int32 attr;
     int detached;
     int joinable;
+    apr_size_t max_free;
 };
 
 struct apr_threadkey_t {
     apr_pool_t *pool;
-	int32  key;
+    int32  key;
 };
 
 struct beos_private_data {
-	const void ** data;
-	int count;
-	volatile thread_id  td;
+    const void ** data;
+    int count;
+    volatile thread_id  td;
 };
 
 struct beos_key {
-	int  assigned;
-	int  count;
-	sem_id  lock;
-	int32  ben_lock;
-	void (* destructor) (void *);
+    int  assigned;
+    int  count;
+    sem_id  lock;
+    int32  ben_lock;
+    void (* destructor) (void *);
 };
 
 struct apr_procattr_t {

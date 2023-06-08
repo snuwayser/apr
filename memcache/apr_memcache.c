@@ -30,7 +30,7 @@ struct apr_memcache_conn_t
     apr_bucket_brigade *bb;
     apr_bucket_brigade *tb;
     apr_memcache_server_t *ms;
-};                                                          
+};
 
 /* Strings for Client Commands */
 
@@ -124,7 +124,7 @@ static apr_status_t make_server_dead(apr_memcache_t *mc, apr_memcache_server_t *
 
 static apr_status_t make_server_live(apr_memcache_t *mc, apr_memcache_server_t *ms)
 {
-    ms->status = APR_MC_SERVER_LIVE; 
+    ms->status = APR_MC_SERVER_LIVE;
     return APR_SUCCESS;
 }
 
@@ -145,7 +145,7 @@ APR_DECLARE(apr_status_t) apr_memcache_add_server(apr_memcache_t *mc, apr_memcac
 
 static apr_status_t mc_version_ping(apr_memcache_server_t *ms);
 
-APR_DECLARE(apr_memcache_server_t *) 
+APR_DECLARE(apr_memcache_server_t *)
 apr_memcache_find_server_hash(apr_memcache_t *mc, const apr_uint32_t hash)
 {
     if (mc->server_func) {
@@ -154,9 +154,9 @@ apr_memcache_find_server_hash(apr_memcache_t *mc, const apr_uint32_t hash)
     else {
         return apr_memcache_find_server_hash_default(NULL, mc, hash);
     }
-}   
+}
 
-APR_DECLARE(apr_memcache_server_t *) 
+APR_DECLARE(apr_memcache_server_t *)
 apr_memcache_find_server_hash_default(void *baton, apr_memcache_t *mc,
                                       const apr_uint32_t hash)
 {
@@ -164,8 +164,8 @@ apr_memcache_find_server_hash_default(void *baton, apr_memcache_t *mc,
     apr_uint32_t h = hash ? hash : 1;
     apr_uint32_t i = 0;
     apr_time_t curtime = 0;
-   
-    if(mc->ntotal == 0) {
+
+    if (mc->ntotal == 0) {
         return NULL;
     }
 
@@ -182,7 +182,7 @@ apr_memcache_find_server_hash_default(void *baton, apr_memcache_t *mc,
             apr_thread_mutex_lock(ms->lock);
 #endif
             /* Try the dead server, every 5 seconds */
-            if (curtime - ms->btime >  apr_time_from_sec(5)) {
+            if (curtime - ms->btime > mc->retry_period) {
                 ms->btime = curtime;
                 if (mc_version_ping(ms) == APR_SUCCESS) {
                     make_server_live(mc, ms);
@@ -222,22 +222,83 @@ APR_DECLARE(apr_memcache_server_t *) apr_memcache_find_server(apr_memcache_t *mc
     return NULL;
 }
 
-static apr_status_t ms_find_conn(apr_memcache_server_t *ms, apr_memcache_conn_t **conn) 
+
+/* Forward declare mc_conn_construct */
+static apr_status_t
+mc_conn_construct(void **conn_, void *params, apr_pool_t *pool);
+
+static apr_status_t ms_find_conn(apr_memcache_server_t *ms, apr_memcache_conn_t **conn)
 {
-    apr_status_t rv;
+    apr_status_t rv = APR_SUCCESS;
     apr_bucket_alloc_t *balloc;
     apr_bucket *e;
+#if APR_HAS_THREADS
+    int i;
+#endif
+    int atreadeof;
 
 #if APR_HAS_THREADS
-    rv = apr_reslist_acquire(ms->conns, (void **)conn);
+    /*
+     * In order to avoid an endless loop in case that a freshly connected
+     * socket is immediately closed by the remote side we limit this loop
+     * to the maxium number of connections in the reslist plus 1.
+     */
+    for (i = 0; i <= ms->max; i++) {
+        rv = apr_reslist_acquire(ms->conns, (void **)conn);
+
+        if (rv != APR_SUCCESS) {
+            return rv;
+        }
+
+        atreadeof = 0;
+        rv = apr_socket_atreadeof((*conn)->sock, &atreadeof);
+
+        if ((rv == APR_SUCCESS) && !atreadeof) {
+            break;
+        }
+        /*
+         * The socket we got is fishy. But maybe the memcached was just
+         * restarted. Hence give it a chance by destroying the socket and
+         * getting a new one.
+         */
+        rv = apr_reslist_invalidate(ms->conns, *conn);
+        *conn = NULL;
+
+        if (rv != APR_SUCCESS) {
+            return rv;
+        }
+    }
+
+    /*
+     * Even after refreshing all sockets we still do not have a working one.
+     * Give up.
+     */
+    if (!(*conn)) {
+        return APR_EGENERAL;
+    }
 #else
     *conn = ms->conn;
-    rv = APR_SUCCESS;
-#endif
-
-    if (rv != APR_SUCCESS) {
-        return rv;
+    atreadeof = 0;
+    if (*conn) {
+        rv = apr_socket_atreadeof((*conn)->sock, &atreadeof);
+        if ((rv != APR_SUCCESS) || !atreadeof) {
+            ms->conn = NULL;
+            apr_pool_destroy((*conn)->p);
+            rv = mc_conn_construct((void**)conn, ms, ms->p);
+            if (rv != APR_SUCCESS) {
+                return rv;
+            }
+            ms->conn = *conn;
+        }
     }
+    else {
+        rv = mc_conn_construct((void**)conn, ms, ms->p);
+        if (rv != APR_SUCCESS) {
+            return rv;
+        }
+        ms->conn = *conn;
+    }
+#endif
 
     balloc = apr_bucket_alloc_create((*conn)->tp);
     (*conn)->bb = apr_brigade_create((*conn)->tp, balloc);
@@ -249,7 +310,7 @@ static apr_status_t ms_find_conn(apr_memcache_server_t *ms, apr_memcache_conn_t 
     return rv;
 }
 
-static apr_status_t ms_bad_conn(apr_memcache_server_t *ms, apr_memcache_conn_t *conn) 
+static apr_status_t ms_bad_conn(apr_memcache_server_t *ms, apr_memcache_conn_t *conn)
 {
 #if APR_HAS_THREADS
     return apr_reslist_invalidate(ms->conns, conn);
@@ -258,7 +319,7 @@ static apr_status_t ms_bad_conn(apr_memcache_server_t *ms, apr_memcache_conn_t *
 #endif
 }
 
-static apr_status_t ms_release_conn(apr_memcache_server_t *ms, apr_memcache_conn_t *conn) 
+static apr_status_t ms_release_conn(apr_memcache_server_t *ms, apr_memcache_conn_t *conn)
 {
     apr_pool_clear(conn->tp);
 #if APR_HAS_THREADS
@@ -290,9 +351,9 @@ static apr_status_t conn_connect(apr_memcache_conn_t *conn)
     apr_status_t rv = APR_SUCCESS;
     apr_sockaddr_t *sa;
 #if APR_HAVE_SOCKADDR_UN
-    apr_int32_t family = conn->ms->host[0] != '/' ? APR_INET : APR_UNIX;
+    apr_int32_t family = conn->ms->host[0] != '/' ? APR_UNSPEC : APR_UNIX;
 #else
-    apr_int32_t family = APR_INET;
+    apr_int32_t family = APR_UNSPEC;
 #endif
 
     rv = apr_sockaddr_info_get(&sa, conn->ms->host, family, conn->ms->port, 0, conn->p);
@@ -328,9 +389,9 @@ mc_conn_construct(void **conn_, void *params, apr_pool_t *pool)
     apr_pool_t *tp;
     apr_memcache_server_t *ms = params;
 #if APR_HAVE_SOCKADDR_UN
-    apr_int32_t family = ms->host[0] != '/' ? APR_INET : APR_UNIX;
+    apr_int32_t family = ms->host[0] != '/' ? APR_UNSPEC : APR_UNIX;
 #else
-    apr_int32_t family = APR_INET;
+    apr_int32_t family = APR_UNSPEC;
 #endif
 
     rv = apr_pool_create(&np, pool);
@@ -367,7 +428,7 @@ mc_conn_construct(void **conn_, void *params, apr_pool_t *pool)
     else {
         *conn_ = conn;
     }
-    
+
     return rv;
 }
 
@@ -378,28 +439,28 @@ mc_conn_destruct(void *conn_, void *params, apr_pool_t *pool)
     apr_memcache_conn_t *conn = (apr_memcache_conn_t*)conn_;
     struct iovec vec[2];
     apr_size_t written;
-    
+
     /* send a quit message to the memcached server to be nice about it. */
     vec[0].iov_base = MC_QUIT;
     vec[0].iov_len = MC_QUIT_LEN;
 
     vec[1].iov_base = MC_EOL;
     vec[1].iov_len = MC_EOL_LEN;
-    
+
     /* Return values not checked, since we just want to make it go away. */
     apr_socket_sendv(conn->sock, vec, 2, &written);
     apr_socket_close(conn->sock);
 
     apr_pool_destroy(conn->p);
-    
+
     return APR_SUCCESS;
 }
 #endif
 
-APR_DECLARE(apr_status_t) apr_memcache_server_create(apr_pool_t *p, 
-                                                     const char *host, apr_port_t port, 
-                                                     apr_uint32_t min, apr_uint32_t smax,
-                                                     apr_uint32_t max, apr_uint32_t ttl,
+APR_DECLARE(apr_status_t) apr_memcache_server_create(apr_pool_t *p,
+                                                     const char *host, apr_port_t port,
+                                                     int min, int smax,
+                                                     int max, apr_interval_time_t ttl,
                                                      apr_memcache_server_t **ms)
 {
     apr_status_t rv = APR_SUCCESS;
@@ -423,7 +484,7 @@ APR_DECLARE(apr_status_t) apr_memcache_server_create(apr_pool_t *p,
         return rv;
     }
 
-    rv = apr_reslist_create(&server->conns, 
+    rv = apr_reslist_create(&server->conns,
                                min,                     /* hard minimum */
                                smax,                    /* soft maximum */
                                max,                     /* hard maximum */
@@ -434,6 +495,11 @@ APR_DECLARE(apr_status_t) apr_memcache_server_create(apr_pool_t *p,
     if (rv != APR_SUCCESS) {
         return rv;
     }
+
+    server->min = min;
+    server->smax = smax;
+    server->max = max;
+    server->ttl = ttl;
 
     apr_reslist_cleanup_order_set(server->conns, APR_RESLIST_CLEANUP_FIRST);
 #else
@@ -448,13 +514,24 @@ APR_DECLARE(apr_status_t) apr_memcache_server_create(apr_pool_t *p,
     return rv;
 }
 
+APR_DECLARE(void) apr_memcache_set_retry_period(apr_memcache_t *mc,
+                                                apr_time_t retry_period)
+{
+    mc->retry_period = retry_period;
+}
+
+APR_DECLARE(apr_time_t) apr_memcache_get_retry_period(apr_memcache_t *mc)
+{
+    return mc->retry_period;
+}
+
 APR_DECLARE(apr_status_t) apr_memcache_create(apr_pool_t *p,
                                               apr_uint16_t max_servers, apr_uint32_t flags,
-                                              apr_memcache_t **memcache) 
+                                              apr_memcache_t **memcache)
 {
     apr_status_t rv = APR_SUCCESS;
     apr_memcache_t *mc;
-    
+
     mc = apr_palloc(p, sizeof(apr_memcache_t));
     mc->p = p;
     mc->nalloc = max_servers;
@@ -464,6 +541,8 @@ APR_DECLARE(apr_status_t) apr_memcache_create(apr_pool_t *p,
     mc->hash_baton = NULL;
     mc->server_func = NULL;
     mc->server_baton = NULL;
+    /* Init with previous default value */
+    mc->retry_period = apr_time_from_sec(5);
     *memcache = mc;
     return rv;
 }
@@ -473,7 +552,7 @@ APR_DECLARE(apr_status_t) apr_memcache_create(apr_pool_t *p,
  * Garrett <srg@quick.com> and was gleaned from the PostgreSQL source
  * tree via the files contrib/ltree/crc32.[ch] and from FreeBSD at
  * src/usr.bin/cksum/crc32.c.
- */ 
+ */
 
 static const apr_uint32_t crc32tab[256] = {
   0x00000000, 0x77073096, 0xee0e612c, 0x990951ba,
@@ -542,21 +621,21 @@ static const apr_uint32_t crc32tab[256] = {
   0xb40bbe37, 0xc30c8ea1, 0x5a05df1b, 0x2d02ef8d,
 };
 
-APR_DECLARE(apr_uint32_t) apr_memcache_hash_crc32(void *baton, 
+APR_DECLARE(apr_uint32_t) apr_memcache_hash_crc32(void *baton,
                                                   const char *data,
                                                   const apr_size_t data_len)
 {
     apr_uint32_t i;
     apr_uint32_t crc;
     crc = ~0;
-    
+
     for (i = 0; i < data_len; i++)
         crc = (crc >> 8) ^ crc32tab[(crc ^ (data[i])) & 0xff];
-    
+
     return ~crc;
 }
 
-APR_DECLARE(apr_uint32_t) apr_memcache_hash_default(void *baton, 
+APR_DECLARE(apr_uint32_t) apr_memcache_hash_default(void *baton,
                                                     const char *data,
                                                     const apr_size_t data_len)
 {
@@ -708,7 +787,7 @@ apr_memcache_add(apr_memcache_t *mc,
                  apr_uint32_t timeout,
                  apr_uint16_t flags)
 {
-    return storage_cmd_write(mc, 
+    return storage_cmd_write(mc,
                            MC_ADD, MC_ADD_LEN,
                            key,
                            data, data_size,
@@ -771,7 +850,7 @@ apr_memcache_getp(apr_memcache_t *mc,
     ms = apr_memcache_find_server_hash(mc, hash);
     if (ms == NULL)
         return APR_NOTFOUND;
-    
+
     rv = ms_find_conn(ms, &conn);
 
     if (rv != APR_SUCCESS) {
@@ -835,7 +914,7 @@ apr_memcache_getp(apr_memcache_t *mc,
                 apr_memcache_disable_server(mc, ms);
                 return rv;
             }
-            
+
             bbb = apr_brigade_split(conn->bb, e);
 
             rv = apr_brigade_pflatten(conn->bb, baton, &len, p);
@@ -855,7 +934,7 @@ apr_memcache_getp(apr_memcache_t *mc,
             *new_length = len - 2;
             (*baton)[*new_length] = '\0';
         }
-        
+
         rv = get_server_line(conn);
         if (rv != APR_SUCCESS) {
             ms_bad_conn(ms, conn);
@@ -900,7 +979,7 @@ apr_memcache_delete(apr_memcache_t *mc,
     ms = apr_memcache_find_server_hash(mc, hash);
     if (ms == NULL)
         return APR_NOTFOUND;
-    
+
     rv = ms_find_conn(ms, &conn);
 
     if (rv != APR_SUCCESS) {
@@ -969,7 +1048,7 @@ static apr_status_t num_cmd_write(apr_memcache_t *mc,
     ms = apr_memcache_find_server_hash(mc, hash);
     if (ms == NULL)
         return APR_NOTFOUND;
-    
+
     rv = ms_find_conn(ms, &conn);
 
     if (rv != APR_SUCCESS) {
@@ -1032,7 +1111,7 @@ apr_memcache_incr(apr_memcache_t *mc,
                          MC_INCR,
                          MC_INCR_LEN,
                          key,
-                         inc, 
+                         inc,
                          new_value);
 }
 
@@ -1047,7 +1126,7 @@ apr_memcache_decr(apr_memcache_t *mc,
                          MC_DECR,
                          MC_DECR_LEN,
                          key,
-                         inc, 
+                         inc,
                          new_value);
 }
 
@@ -1090,7 +1169,7 @@ apr_memcache_version(apr_memcache_server_t *ms,
     }
 
     if (strncmp(MS_VERSION, conn->buffer, MS_VERSION_LEN) == 0) {
-        *baton = apr_pstrmemdup(p, conn->buffer+MS_VERSION_LEN+1, 
+        *baton = apr_pstrmemdup(p, conn->buffer+MS_VERSION_LEN+1,
                                 conn->blen - MS_VERSION_LEN - 2);
         rv = APR_SUCCESS;
     }
@@ -1136,7 +1215,7 @@ apr_status_t mc_version_ping(apr_memcache_server_t *ms)
 }
 
 
-APR_DECLARE(void) 
+APR_DECLARE(void)
 apr_memcache_add_multget_key(apr_pool_t *data_pool,
                              const char* key,
                              apr_hash_t **values)
@@ -1170,7 +1249,7 @@ static void mget_conn_result(int serverup,
 {
     apr_int32_t j;
     apr_memcache_value_t* value;
-    
+
     apr_hash_set(server_queries, &ms, sizeof(ms), NULL);
 
     if (connup) {
@@ -1182,12 +1261,12 @@ static void mget_conn_result(int serverup,
             apr_memcache_disable_server(mc, ms);
         }
     }
-    
+
     for (j = 1; j < server_query->query_vec_count ; j+=2) {
         if (server_query->query_vec[j].iov_base) {
             value = apr_hash_get(values, server_query->query_vec[j].iov_base,
                                  strlen(server_query->query_vec[j].iov_base));
-            
+
             if (value->status == APR_NOTFOUND) {
                 value->status = rv;
             }
@@ -1295,7 +1374,7 @@ apr_memcache_multgetp(apr_memcache_t *mc,
 
     /* create polling structures */
     pollfds = apr_pcalloc(temp_pool, apr_hash_count(server_queries) * sizeof(apr_pollfd_t));
-    
+
     rv = apr_pollset_create(&pollset, apr_hash_count(server_queries), temp_pool,
                             APR_POLLSET_NOCOPY);
 
@@ -1462,26 +1541,26 @@ apr_memcache_multgetp(apr_memcache_t *mc,
            }
         } /* /for */
     } /* /while */
-    
+
     query_hash_index = apr_hash_first(temp_pool, server_queries);
     while (query_hash_index) {
         void *v;
         apr_hash_this(query_hash_index, NULL, NULL, &v);
         server_query = v;
         query_hash_index = apr_hash_next(query_hash_index);
-        
+
         conn = server_query->conn;
         ms = server_query->ms;
-        
+
         mget_conn_result(TRUE, (rv == APR_SUCCESS), rv, mc, ms, conn,
                          server_query, values, server_queries);
         continue;
     }
-    
+
     apr_pollset_destroy(pollset);
     apr_pool_clear(temp_pool);
     return APR_SUCCESS;
-    
+
 }
 
 
@@ -1600,7 +1679,7 @@ static apr_time_t stat_read_rtime(apr_pool_t *p, char *buf, apr_size_t  len)
 }
 
 /**
- * I got tired of Typing. Meh. 
+ * I got tired of Typing. Meh.
  *
  * TODO: Convert it to static tables to make it cooler.
  */
@@ -1632,9 +1711,9 @@ static apr_time_t stat_read_rtime(apr_pool_t *p, char *buf, apr_size_t  len)
 #define mc_do_stat(name, type) \
     if (mc_stat_cmp(name)) { \
         stats-> name = mc_stat_ ## type ((STAT_ ## name ## _LEN)); \
-    } 
+    }
 
-static void update_stats(apr_pool_t *p, apr_memcache_conn_t *conn, 
+static void update_stats(apr_pool_t *p, apr_memcache_conn_t *conn,
                          apr_memcache_stats_t *stats)
 {
 
@@ -1665,7 +1744,7 @@ static void update_stats(apr_pool_t *p, apr_memcache_conn_t *conn,
 APR_DECLARE(apr_status_t)
 apr_memcache_stats(apr_memcache_server_t *ms,
                   apr_pool_t *p,
-                  apr_memcache_stats_t **stats) 
+                  apr_memcache_stats_t **stats)
 {
     apr_memcache_stats_t *ret;
     apr_status_t rv;

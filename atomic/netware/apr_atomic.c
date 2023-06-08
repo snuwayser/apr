@@ -20,7 +20,7 @@
 
 APR_DECLARE(apr_status_t) apr_atomic_init(apr_pool_t *pool)
 {
-#if defined (NEED_ATOMICS_GENERIC64)
+#if defined(USE_ATOMICS_GENERIC64)
     return apr__atomic_generic64_init(p);
 #else
     return APR_SUCCESS;
@@ -62,7 +62,7 @@ APR_DECLARE(apr_uint32_t) apr_atomic_xchg32(volatile apr_uint32_t *mem, apr_uint
     return atomic_xchg((unsigned long *)mem,(unsigned long)val);
 }
 
-APR_DECLARE(int) apr_atomic_dec32(volatile apr_uint32_t *mem) 
+APR_DECLARE(int) apr_atomic_dec32(volatile apr_uint32_t *mem)
 {
     return (atomic_xchgadd((unsigned long *)mem, 0xFFFFFFFF) - 1);
 }

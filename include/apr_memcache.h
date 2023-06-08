@@ -72,6 +72,13 @@ struct apr_memcache_server_t
     apr_thread_mutex_t *lock;
 #endif
     apr_time_t btime;
+#if APR_HAS_THREADS
+    /** Resource list parameters */
+    int min;
+    int smax;
+    int max;
+    apr_interval_time_t ttl;
+#endif
 };
 
 /* Custom hash callback function prototype, user for server selection.
@@ -106,6 +113,8 @@ struct apr_memcache_t
     apr_memcache_hash_func hash_func;
     void *server_baton;
     apr_memcache_server_func server_func;
+    /** Period of time before retrying a dead server */
+    apr_time_t retry_period;
 };
 
 /** Returned Data from a multiple get */
@@ -151,7 +160,7 @@ APR_DECLARE(apr_uint32_t) apr_memcache_hash_default(void *baton,
  * @return server that controls specified hash
  * @see apr_memcache_hash
  */
-APR_DECLARE(apr_memcache_server_t *) apr_memcache_find_server_hash(apr_memcache_t *mc, 
+APR_DECLARE(apr_memcache_server_t *) apr_memcache_find_server_hash(apr_memcache_t *mc,
                                                                    const apr_uint32_t hash);
 
 /**
@@ -159,7 +168,7 @@ APR_DECLARE(apr_memcache_server_t *) apr_memcache_find_server_hash(apr_memcache_
  */
 APR_DECLARE(apr_memcache_server_t *)
 apr_memcache_find_server_hash_default(void *baton,
-                                      apr_memcache_t *mc, 
+                                      apr_memcache_t *mc,
                                       const apr_uint32_t hash);
 
 /**
@@ -202,6 +211,26 @@ APR_DECLARE(apr_status_t) apr_memcache_enable_server(apr_memcache_t *mc,
 APR_DECLARE(apr_status_t) apr_memcache_disable_server(apr_memcache_t *mc,
                                                       apr_memcache_server_t *ms);
 
+
+/**
+ * Set the retry period for retrying a dead server
+ * @param mc The memcache client object to use
+ * @param retry_period Period that must have passed until a server that was
+ *        declared dead is retried.
+ */
+APR_DECLARE(void) apr_memcache_set_retry_period(apr_memcache_t *mc,
+                                                apr_time_t retry_period);
+
+
+/**
+ * Get the retry period for retrying a dead server
+ * @param mc The memcache client object to use
+ * @return retry_period Period that must have passed until a server that was
+ *         declared dead is retried.
+ */
+APR_DECLARE(apr_time_t) apr_memcache_get_retry_period(apr_memcache_t *mc);
+
+
 /**
  * Creates a new Server Object
  * @param p Pool to use
@@ -218,10 +247,10 @@ APR_DECLARE(apr_status_t) apr_memcache_disable_server(apr_memcache_t *mc,
 APR_DECLARE(apr_status_t) apr_memcache_server_create(apr_pool_t *p,
                                                      const char *host,
                                                      apr_port_t port,
-                                                     apr_uint32_t min,
-                                                     apr_uint32_t smax,
-                                                     apr_uint32_t max,
-                                                     apr_uint32_t ttl,
+                                                     int min,
+                                                     int smax,
+                                                     int max,
+                                                     apr_interval_time_t ttl,
                                                      apr_memcache_server_t **ns);
 /**
  * Creates a new memcached client object
@@ -243,9 +272,9 @@ APR_DECLARE(apr_status_t) apr_memcache_create(apr_pool_t *p,
  * @param baton location of the allocated value
  * @param len   length of data at baton
  * @param flags any flags set by the client for this key
- * @return 
+ * @return
  */
-APR_DECLARE(apr_status_t) apr_memcache_getp(apr_memcache_t *mc, 
+APR_DECLARE(apr_status_t) apr_memcache_getp(apr_memcache_t *mc,
                                             apr_pool_t *p,
                                             const char* key,
                                             char **baton,
@@ -304,7 +333,7 @@ APR_DECLARE(apr_status_t) apr_memcache_set(apr_memcache_t *mc,
  * @param data_size   length of data at baton
  * @param timeout time for the data to live on the server
  * @param flags any flags set by the client for this key
- * @return APR_SUCCESS if the key was added, APR_EEXIST if the key 
+ * @return APR_SUCCESS if the key was added, APR_EEXIST if the key
  * already exists on the server.
  */
 APR_DECLARE(apr_status_t) apr_memcache_add(apr_memcache_t *mc,
@@ -322,7 +351,7 @@ APR_DECLARE(apr_status_t) apr_memcache_add(apr_memcache_t *mc,
  * @param data_size   length of data at baton
  * @param timeout time for the data to live on the server
  * @param flags any flags set by the client for this key
- * @return APR_SUCCESS if the key was added, APR_EEXIST if the key 
+ * @return APR_SUCCESS if the key was added, APR_EEXIST if the key
  * did not exist on the server.
  */
 APR_DECLARE(apr_status_t) apr_memcache_replace(apr_memcache_t *mc,
@@ -348,7 +377,7 @@ APR_DECLARE(apr_status_t) apr_memcache_delete(apr_memcache_t *mc,
  * @param n     number to increment by
  * @param nv    new value after incrementing
  */
-APR_DECLARE(apr_status_t) apr_memcache_incr(apr_memcache_t *mc, 
+APR_DECLARE(apr_status_t) apr_memcache_incr(apr_memcache_t *mc,
                                             const char *key,
                                             apr_int32_t n,
                                             apr_uint32_t *nv);
@@ -360,7 +389,7 @@ APR_DECLARE(apr_status_t) apr_memcache_incr(apr_memcache_t *mc,
  * @param n     number to decrement by
  * @param new_value    new value after decrementing
  */
-APR_DECLARE(apr_status_t) apr_memcache_decr(apr_memcache_t *mc, 
+APR_DECLARE(apr_status_t) apr_memcache_decr(apr_memcache_t *mc,
                                             const char *key,
                                             apr_int32_t n,
                                             apr_uint32_t *new_value);
@@ -421,7 +450,7 @@ typedef struct
     /** Number of bytes this server is allowed to use for storage. */
     apr_uint32_t limit_maxbytes;
     /** Number of threads the server is running (if built with threading) */
-    apr_uint32_t threads; 
+    apr_uint32_t threads;
 } apr_memcache_stats_t;
 
 /**
@@ -430,7 +459,7 @@ typedef struct
  * @param p     Pool to allocate answer from
  * @param stats location of the new statistics structure
  */
-APR_DECLARE(apr_status_t) apr_memcache_stats(apr_memcache_server_t *ms, 
+APR_DECLARE(apr_status_t) apr_memcache_stats(apr_memcache_server_t *ms,
                                              apr_pool_t *p,
                                              apr_memcache_stats_t **stats);
 

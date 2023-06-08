@@ -30,10 +30,10 @@ struct testval {
 };
 
 #ifdef FOR_REFERENCE
-/* For reference; a table of invalid utf-8 encoded ucs-2/ucs-4 sequences.
+/* For reference; a table of invalid utf-8 encoded utf-16/utf-32 sequences.
  * The table consists of start, end pairs for all invalid ranges.
- * NO_UCS2_PAIRS will pass the reservered D800-DFFF values, halting at FFFF
- * FULL_UCS4_MAPPER represents all 31 bit values to 7FFF FFFF
+ * NO_UTF16_PAIRS will pass the reservered D800-DFFF values, halting at FFFF
+ * FULL_UTF32_MAPPER represents all 31 bit values to 7FFF FFFF
  *
  * We already tested these, because we ensure there is a 1:1 mapping across
  * the entire range of byte values in each position of 1 to 6 byte sequences.
@@ -45,29 +45,29 @@ struct testval malformed[] = [
     [[0xC1,0xBF], 2,],                         /* overshort mapping of 007F */
     [[0xE0,0x80,0x80,], 3,],                   /* overshort mapping of 0000 */
     [[0xE0,0x9F,0xBF,], 3,],                   /* overshort mapping of 07FF */
-#ifndef NO_UCS2_PAIRS
-    [[0xED,0xA0,0x80,], 3,],    /* unexpected mapping of UCS-2 literal D800 */
-    [[0xED,0xBF,0xBF,], 3,],    /* unexpected mapping of UCS-2 literal DFFF */
+#ifndef NO_UTF16_PAIRS
+    [[0xED,0xA0,0x80,], 3,],   /* unexpected mapping of utf-16 literal D800 */
+    [[0xED,0xBF,0xBF,], 3,],   /* unexpected mapping of utf-16 literal DFFF */
 #endif
     [[0xF0,0x80,0x80,0x80,], 4,],              /* overshort mapping of 0000 */
     [[0xF0,0x8F,0xBF,0xBF,], 4,],              /* overshort mapping of FFFF */
-#ifdef NO_UCS2_PAIRS
+#ifdef NO_UTF16_PAIRS
     [[0xF0,0x90,0x80,0x80,], 4,],      /* invalid too large value 0001 0000 */
     [[0xF4,0x8F,0xBF,0xBF,], 4,],      /* invalid too large value 0010 FFFF */
 #endif
-#ifndef FULL_UCS4_MAPPER
+#ifndef FULL_UTF32_MAPPER
     [[0xF4,0x90,0x80,0x80,], 4,],      /* invalid too large value 0011 0000 */
     [[0xF7,0xBF,0xBF,0xBF,], 4,],      /* invalid too large value 001F FFFF */
 #endif
     [[0xF8,0x80,0x80,0x80,0x80,], 5,],    /* overshort mapping of 0000 0000 */
     [[0xF8,0x87,0xBF,0xBF,0xBF,], 5,],    /* overshort mapping of 001F FFFF */
-#ifndef FULL_UCS4_MAPPER
+#ifndef FULL_UTF32_MAPPER
     [[0xF8,0x88,0x80,0x80,0x80,], 5,], /* invalid too large value 0020 0000 */
     [[0xFB,0xBF,0xBF,0xBF,0xBF,], 5,], /* invalid too large value 03FF FFFF */
 #endif
     [[0xFC,0x80,0x80,0x80,0x80,0x80,], 6,],  /* overshort mapping 0000 0000 */
     [[0xFC,0x83,0xBF,0xBF,0xBF,0xBF,], 6,],  /* overshort mapping 03FF FFFF */
-#ifndef FULL_UCS4_MAPPER
+#ifndef FULL_UTF32_MAPPER
     [[0xFC,0x84,0x80,0x80,0x80,0x80,], 6,],  /* overshort mapping 0400 0000 */
     [[0xFD,0xBF,0xBF,0xBF,0xBF,0xBF,], 6,],  /* overshort mapping 7FFF FFFF */
 #endif
@@ -79,10 +79,10 @@ struct testval malformed[] = [
 void displaynw(struct testval *f, struct testval *l)
 {
     char x[80], *t = x;
-    int i;
+    apr_size_t i;
     for (i = 0; i < f->nl; ++i)
         t += sprintf(t, "%02X ", f->n[i]);
-    *(t++) = '-'; 
+    *(t++) = '-';
     for (i = 0; i < l->nl; ++i)
         t += sprintf(t, " %02X", l->n[i]);
     *(t++) = ' ';
@@ -98,7 +98,7 @@ void displaynw(struct testval *f, struct testval *l)
 }
 
 /*
- *  Test every possible byte value. 
+ *  Test every possible byte value.
  *  If the test passes or fails at this byte value we are done.
  *  Otherwise iterate test_nrange again, appending another byte.
  */
@@ -107,10 +107,10 @@ void test_nrange(struct testval *p)
     struct testval f, l, s;
     apr_status_t rc;
     int success = 0;
-    
+
     memcpy (&s, p, sizeof(s));
-    ++s.nl;    
-    
+    ++s.nl;
+
     do {
         apr_size_t nl = s.nl, wl = sizeof(s.w) / 2;
         rc = apr_conv_utf8_to_utf16(s.n, &nl, s.w, &wl);
@@ -121,13 +121,13 @@ void test_nrange(struct testval *p)
                 success = -1;
             }
             else {
-                if (s.wl != l.wl 
+                if (s.wl != l.wl
                  || memcmp(s.w, l.w, (s.wl - 1) * 2) != 0
                  || s.w[s.wl - 1] != l.w[l.wl - 1] + 1) {
                     displaynw(&f, &l);
                     memcpy(&f, &s, sizeof(s));
                 }
-            }            
+            }
             memcpy(&l, &s, sizeof(s));
         }
         else {
@@ -147,10 +147,10 @@ void test_nrange(struct testval *p)
     }
 }
 
-/* 
- *  Test every possible word value. 
+/*
+ *  Test every possible word value.
  *  Once we are finished, retest every possible word value.
- *  if the test fails on the following null word, iterate test_nrange 
+ *  if the test fails on the following null word, iterate test_nrange
  *  again, appending another word.
  *  This assures the output order of the two tests are in sync.
  */
@@ -159,12 +159,12 @@ void test_wrange(struct testval *p)
     struct testval f, l, s;
     apr_status_t rc;
     int success = 0;
-    
+
     memcpy (&s, p, sizeof(s));
-    ++s.wl;    
-    
+    ++s.wl;
+
     do {
-        apr_size_t nl = sizeof(s.n), wl = s.wl;        
+        apr_size_t nl = sizeof(s.n), wl = s.wl;
         rc = apr_conv_utf16_to_utf8(s.w, &wl, s.n, &nl);
         s.nl = sizeof(s.n) - nl;
         if (!wl && rc == APR_SUCCESS) {
@@ -173,13 +173,13 @@ void test_wrange(struct testval *p)
                 success = -1;
             }
             else {
-                if (s.nl != l.nl 
+                if (s.nl != l.nl
                  || memcmp(s.n, l.n, s.nl - 1) != 0
                  || s.n[s.nl - 1] != l.n[l.nl - 1] + 1) {
                     displaynw(&f, &l);
                     memcpy(&f, &s, sizeof(s));
                 }
-            }            
+            }
             memcpy(&l, &s, sizeof(s));
         }
         else {
@@ -206,7 +206,7 @@ void test_wrange(struct testval *p)
 }
 
 /*
- *  Test every possible byte value. 
+ *  Test every possible byte value.
  *  If the test passes or fails at this byte value we are done.
  *  Otherwise iterate test_nrange again, appending another byte.
  */
@@ -324,7 +324,7 @@ void test_ranges()
 }
 
 /*
- *  Syntax: testucs [w|n]
+ *  Syntax: testutf [w|n]
  *
  *  If no arg or arg is not recognized, run equality sequence test.
  */

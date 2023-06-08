@@ -150,6 +150,18 @@ fi
 
 AC_SUBST(APR_CONFIG_LOCATION)
 
+if test "x$host_alias" != x; then
+  if test "x$build_alias" = x; then
+    APR_CROSS_COMPILING=maybe
+  elif test "x$build_alias" != "x$host_alias"; then
+    APR_CROSS_COMPILING=yes
+  fi
+else
+    APR_CROSS_COMPILING=no
+fi
+
+AC_SUBST(APR_CROSS_COMPILING)
+
 # Libtool might need this symbol -- it must point to the location of
 # the generated libtool script (not necessarily the "top" build dir).
 #
@@ -485,11 +497,18 @@ case "$host:$CC" in
         ;;
 esac
 
-AC_CACHE_CHECK([whether the compiler provides atomic builtins], [ap_cv_atomic_builtins],
+AC_CACHE_CHECK([whether the compiler provides 32bit atomic builtins], [ap_cv_atomic_builtins],
 [AC_TRY_RUN([
+#if HAVE_STDINT_H
+#include <stdint.h>
+#endif
 int main(int argc, const char *const *argv)
 {
-    unsigned long val = 1010, tmp, *mem = &val;
+#if HAVE_STDINT_H
+    uint32_t val = 1010, tmp, *mem = &val;
+#else
+    unsigned int val = 1010, tmp, *mem = &val;
+#endif
 
     if (__sync_fetch_and_add(&val, 1010) != 1010 || val != 2020)
         return 1;
@@ -515,11 +534,18 @@ int main(int argc, const char *const *argv)
     return 0;
 }], [ap_cv_atomic_builtins=yes], [ap_cv_atomic_builtins=no], [ap_cv_atomic_builtins=no])])
 
-AC_CACHE_CHECK([whether the compiler provides __atomic builtins], [ap_cv__atomic_builtins],
+AC_CACHE_CHECK([whether the compiler provides 32bit __atomic builtins], [ap_cv__atomic_builtins],
 [AC_TRY_RUN([
+#if HAVE_STDINT_H
+#include <stdint.h>
+#endif
 int main(int argc, const char *const *argv)
 {
-    unsigned long val = 1010, tmp, *mem = &val, *ptmp;
+#if HAVE_STDINT_H
+    uint32_t val = 1010, tmp, *mem = &val, *ptmp;
+#else
+    unsigned int val = 1010, tmp, *mem = &val, *ptmp;
+#endif
 
     if (__atomic_fetch_add(&val, 1010, __ATOMIC_SEQ_CST) != 1010 || val != 2020)
         return 1;
@@ -548,9 +574,105 @@ int main(int argc, const char *const *argv)
 }], [ap_cv__atomic_builtins=yes], [ap_cv__atomic_builtins=no], [ap_cv__atomic_builtins=no])])
 
 if test "$ap_cv_atomic_builtins" = "yes" -o "$ap_cv__atomic_builtins" = "yes"; then
-    AC_DEFINE(HAVE_ATOMIC_BUILTINS, 1, [Define if compiler provides atomic builtins])
+    AC_DEFINE(HAVE_ATOMIC_BUILTINS, 1, [Define if compiler provides 32bit atomic builtins])
     if test "$ap_cv__atomic_builtins" = "yes"; then
-        AC_DEFINE(HAVE__ATOMIC_BUILTINS, 1, [Define if compiler provides __atomic builtins])
+        AC_DEFINE(HAVE__ATOMIC_BUILTINS, 1, [Define if compiler provides 32bit __atomic builtins])
+    fi
+    has_atomic_builtins=yes
+else
+    has_atomic_builtins=no
+fi
+
+AC_CACHE_CHECK([whether the compiler provides 64bit atomic builtins], [ap_cv_atomic_builtins64],
+[AC_TRY_RUN([
+#if HAVE_STDINT_H
+#include <stdint.h>
+typedef uint64_t u64_t;
+#else
+typedef unsigned long long u64_t;
+#endif
+int main(int argc, const char *const *argv)
+{
+    struct {
+        char pad0;
+        u64_t val;
+    } s;
+    u64_t *mem = &s.val, tmp;
+
+    s.val = 1010;
+    if (__sync_fetch_and_add(&s.val, 1010) != 1010 || s.val != 2020)
+        return 1;
+
+    tmp = s.val;
+    if (__sync_fetch_and_sub(mem, 1010) != tmp || s.val != 1010)
+        return 1;
+
+    if (__sync_sub_and_fetch(&s.val, 1010) != 0 || s.val != 0)
+        return 1;
+
+    tmp = 3030;
+    if (__sync_val_compare_and_swap(mem, 0, tmp) != 0 || s.val != tmp)
+        return 1;
+
+    __sync_synchronize();
+    if (__sync_lock_test_and_set(&s.val, 4040) != 3030)
+        return 1;
+
+    return 0;
+}], [ap_cv_atomic_builtins64=yes], [ap_cv_atomic_builtins64=no], [ap_cv_atomic_builtins64=no])])
+
+AC_CACHE_CHECK([whether the compiler provides 64bit __atomic builtins], [ap_cv__atomic_builtins64],
+[AC_TRY_RUN([
+#if HAVE_STDINT_H
+#include <stdint.h>
+typedef uint64_t u64_t;
+#else
+typedef unsigned long long u64_t;
+#endif
+static int test_always_lock_free(volatile u64_t *val)
+{
+    return __atomic_always_lock_free(sizeof(*val), val);
+}
+int main(int argc, const char *const *argv)
+{
+    struct {
+        char pad0;
+        u64_t val;
+        char pad1;
+        u64_t tmp;
+    } s;
+    u64_t *mem = &s.val;
+
+    /* check if alignment matters (no fallback to libatomic) */
+    if (!test_always_lock_free(&s.val))
+        return 1;
+
+    s.val = 1010;
+    if (__atomic_fetch_add(&s.val, 1010, __ATOMIC_SEQ_CST) != 1010 || s.val != 2020)
+        return 1;
+
+    s.tmp = s.val;
+    if (__atomic_fetch_sub(mem, 1010, __ATOMIC_SEQ_CST) != s.tmp || s.val != 1010)
+        return 1;
+
+    if (__atomic_sub_fetch(&s.val, 1010, __ATOMIC_SEQ_CST) != 0 || s.val != 0)
+        return 1;
+
+    s.tmp = s.val;
+    if (!__atomic_compare_exchange_n(mem, &s.tmp, 3030, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST)
+            || s.tmp != 0)
+        return 1;
+
+    if (__atomic_exchange_n(&s.val, 4040, __ATOMIC_SEQ_CST) != 3030)
+        return 1;
+
+    return 0;
+}], [ap_cv__atomic_builtins64=yes], [ap_cv__atomic_builtins64=no], [ap_cv__atomic_builtins64=no])])
+
+if test "$ap_cv_atomic_builtins64" = "yes" -o "$ap_cv__atomic_builtins64" = "yes"; then
+    AC_DEFINE(HAVE_ATOMIC_BUILTINS64, 1, [Define if compiler provides 64bit atomic builtins])
+    if test "$ap_cv__atomic_builtins64" = "yes"; then
+        AC_DEFINE(HAVE__ATOMIC_BUILTINS64, 1, [Define if compiler provides 64bit __atomic builtins])
     fi
 fi
 
@@ -714,18 +836,30 @@ void main(void)
    fi
 fi
 
+force_generic_atomics=no
+force_generic_atomics64=no
+AC_CHECK_SIZEOF(void*, 4)
+if test "x$ac_cv_sizeof_voidp" = "x"; then
+    force_generic_atomics64=yes
+elif test $ac_cv_sizeof_voidp -lt 8; then
+    force_generic_atomics64=yes
+fi
 AC_ARG_ENABLE(nonportable-atomics,
 [  --enable-nonportable-atomics  Use optimized atomic code which may produce nonportable binaries],
-[if test $enableval = yes; then
-   force_generic_atomics=no
- else
+[if test "$enableval" = "upto32bit"; then
+   force_generic_atomics64=yes
+ elif test "$enableval" != "yes"; then
    force_generic_atomics=yes
  fi
 ],
 [case $host_cpu in
-   i[[456]]86) force_generic_atomics=yes ;;
-   *) force_generic_atomics=no
-      case $host in
+   i[[34]]86)
+      force_generic_atomics=yes
+      ;;
+   i[[56]]86)
+      force_generic_atomics64=yes
+      ;;
+   *) case $host in
          *solaris2.10*)
             AC_TRY_COMPILE(
                 [#include <atomic.h>],
@@ -740,10 +874,13 @@ AC_ARG_ENABLE(nonportable-atomics,
       ;;
 esac
 ])
-
 if test $force_generic_atomics = yes; then
    AC_DEFINE([USE_ATOMICS_GENERIC], 1,
              [Define if use of generic atomics is requested])
+fi
+if test $force_generic_atomics = yes -o $force_generic_atomics64 = yes; then
+   AC_DEFINE([USE_ATOMICS_GENERIC64], 1,
+             [Define if use of 64bit generic atomics is requested])
 fi
 
 AC_SUBST(proc_mutex_is_global)
@@ -858,6 +995,7 @@ else
         APR_CHECK_PTHREAD_GETSPECIFIC_TWO_ARGS
         APR_CHECK_PTHREAD_ATTR_GETDETACHSTATE_ONE_ARG
         APR_CHECK_PTHREAD_RECURSIVE_MUTEX
+        APR_CHECK_PTHREAD_SETNAME_NP
         AC_CHECK_FUNCS([pthread_key_delete pthread_rwlock_init \
                         pthread_attr_setguardsize pthread_yield])
 
@@ -972,7 +1110,7 @@ AC_CACHE_CHECK([for epoll support], [apr_cv_epoll],
 #include <sys/epoll.h>
 #include <unistd.h>
 
-int main()
+int main(int argc, const char *argv[])
 {
     return epoll_create(5) == -1;
 }], [apr_cv_epoll=yes], [apr_cv_epoll=no], [apr_cv_epoll=no])])
@@ -988,13 +1126,54 @@ AC_CACHE_CHECK([for epoll_create1 support], [apr_cv_epoll_create1],
 #include <sys/epoll.h>
 #include <unistd.h>
 
-int main()
+int main(int argc, const char *argv[])
 {
     return epoll_create1(0) == -1;
 }], [apr_cv_epoll_create1=yes], [apr_cv_epoll_create1=no], [apr_cv_epoll_create1=no])])
 
 if test "$apr_cv_epoll_create1" = "yes"; then
    AC_DEFINE([HAVE_EPOLL_CREATE1], 1, [Define if epoll_create1 function is supported])
+fi
+
+AC_CACHE_CHECK([whether epoll_wait has a reliable timeout (min)],
+               [apr_cv_epoll_wait_has_reliable_timeout],
+[AC_TRY_RUN([
+#include <unistd.h>
+#include <sys/epoll.h>
+#include <sys/time.h>   /* for gettimeofday */
+
+#define TV2US(tv) ((tv).tv_sec * 1000000LL + (tv).tv_usec)
+
+int main(int argc, const char *argv[])
+{
+    struct epoll_event events[1];
+    int fd, i;
+#ifdef HAVE_EPOLL_CREATE1
+    fd = epoll_create1(0);
+#else
+    fd = epoll_create(1);
+#endif
+    if (fd < 0) {
+        return 1;
+    }
+    for (i = 0; i < 10; ++i) {
+        struct timeval t1 = {0,},
+                       t2 = {0,};
+        (void)gettimeofday(&t1, NULL);
+        (void)epoll_wait(fd, events, 1, 100);  /* ms */
+        (void)gettimeofday(&t2, NULL);
+        if (TV2US(t2) - TV2US(t1) < 100000) {  /* us */
+            return 1;
+        }
+    }
+    return 0;
+}], [apr_cv_epoll_wait_has_reliable_timeout=yes],
+    [apr_cv_epoll_wait_has_reliable_timeout=no],
+    [apr_cv_epoll_wait_has_reliable_timeout=no])])
+
+if test "$apr_cv_epoll_wait_has_reliable_timeout" = "yes"; then
+   AC_DEFINE([HAVE_EPOLL_WAIT_RELIABLE_TIMEOUT], 1,
+             [Define if epoll_wait has a reliable timeout (min)])
 fi
 
 # Check for z/OS async i/o support.  
@@ -1235,6 +1414,10 @@ havebeosarea="0"
 haveos2shm="0"
 havewin32shm="0"
 APR_BEGIN_DECISION([namebased memory allocation method])
+APR_IFALLYES(header:sys/ipc.h header:sys/shm.h header:sys/file.h dnl
+             func:shmget func:shmat func:shmdt func:shmctl,
+             [haveshmget="1"
+              APR_DECIDE(USE_SHMEM_SHMGET, [SysV IPC shmget()])])
 APR_IFALLYES(header:sys/mman.h func:mmap func:munmap,
              [havemmaptmp="1"
               APR_DECIDE(USE_SHMEM_MMAP_TMP, 
@@ -1244,10 +1427,6 @@ APR_IFALLYES(header:sys/mman.h func:mmap func:munmap func:shm_open dnl
              [havemmapshm="1"
               APR_DECIDE(USE_SHMEM_MMAP_SHM, 
                   [mmap() via POSIX.1 shm_open() on temporary file])])
-APR_IFALLYES(header:sys/ipc.h header:sys/shm.h header:sys/file.h dnl
-             func:shmget func:shmat func:shmdt func:shmctl,
-             [haveshmget="1"
-              APR_DECIDE(USE_SHMEM_SHMGET, [SysV IPC shmget()])])
 APR_IFALLYES(header:kernel/OS.h func:create_area,
              [havebeosshm="1"
               APR_DECIDE(USE_SHMEM_BEOS, [BeOS areas])])
@@ -1264,6 +1443,13 @@ if test "$havemmapshm" = "1"; then
   APR_DECISION_OVERRIDE(USE_SHMEM_MMAP_SHM)
 fi
 ])
+AC_ARG_ENABLE(sysv-shm,
+[  --enable-sysv-shm       Use SysV shared memory (shmget) if available],
+[
+if test "$haveshmget" = "1"; then
+  APR_DECISION_OVERRIDE(USE_SHMEM_SHMGET)
+fi
+])
 case $host in
     *linux* ) 
         # Linux pre-2.4 had problems with MM_SHMT_MMANON even though
@@ -1273,6 +1459,10 @@ case $host in
                                   USE_SHMEM_SHMGET)
         fi
         ;;
+    *aix* )
+        # AIX cannot lseek() shared memory, and we always truncate/lseek together
+        APR_DECISION_OVERRIDE(USE_SHMEM_SHMGET)
+       ;;
 esac
 APR_END_DECISION
 AC_DEFINE_UNQUOTED($ac_decision)
@@ -1388,8 +1578,6 @@ AC_CHECK_FUNCS(sigaction, [ have_sigaction="1" ], [ have_sigaction="0" ])
 AC_DECL_SYS_SIGLIST
 
 AC_CHECK_FUNCS(fork, [ fork="1" ], [ fork="0" ])
-APR_CHECK_INET_ADDR
-APR_CHECK_INET_NETWORK
 AC_SUBST(apr_inaddr_none)
 AC_CHECK_FUNC(_getch)
 AC_CHECK_FUNCS(strerror_r, [ strerror_r="1" ], [ strerror_r="0" ])
@@ -1511,6 +1699,9 @@ if test "$apr_cv_hdr_mswsock_h" = "yes"; then
 else
    mswsockh=0
 fi
+
+APR_CHECK_INET_ADDR
+APR_CHECK_INET_NETWORK
 
 # IRIX 6.5 has a problem in <netinet/tcp.h> which prevents it from
 # being included by itself.  Check for <netinet/tcp.h> manually,
@@ -2210,10 +2401,11 @@ fi
 AC_SUBST(have_proc_invoked)
 
 AC_MSG_CHECKING(for Variable Length Arrays)
-APR_TRY_COMPILE_NO_WARNING([],
+APR_TRY_COMPILE_NO_WARNING([#include <stdio.h>],
 [
     int foo[argc];
     foo[0] = 0;
+    printf("%d\n", foo[0]);
 ], vla_msg=yes, vla_msg=no )
 AC_MSG_RESULT([$vla_msg])
 if test "$vla_msg" = "yes"; then
@@ -2226,7 +2418,7 @@ AC_TRY_RUN([
 #include <sys/time.h>
 #include <sys/resource.h>
 #include <stdlib.h>
-main()
+int main(void)
 {
     struct rlimit limit;
     limit.rlim_cur = 0;
@@ -2266,7 +2458,7 @@ AC_TRY_RUN([
 #ifndef SEM_FAILED
 #define SEM_FAILED (-1)
 #endif
-main()
+int main()
 {
     sem_t *psem;
     const char *sem_name = "/apr_autoconf";
@@ -2462,6 +2654,8 @@ AC_TRY_RUN([
 int fd;
 struct flock proc_mutex_lock_it = {0};
 const char *fname = "conftest.fcntl";
+
+int lockit();
 
 int main()
 {

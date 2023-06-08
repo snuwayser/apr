@@ -79,7 +79,7 @@ static void SystemTimeToAprExpTime(apr_time_exp_t *xt, SYSTEMTIME *tm)
         xt->tm_yday++;
 }
 
-APR_DECLARE(apr_status_t) apr_time_ansi_put(apr_time_t *result, 
+APR_DECLARE(apr_status_t) apr_time_ansi_put(apr_time_t *result,
                                                     time_t input)
 {
     *result = (apr_time_t) input * APR_USEC_PER_SEC;
@@ -94,7 +94,7 @@ APR_DECLARE(apr_time_t) apr_time_now(void)
 
     GetSystemTimeAsFileTime(&time);
     FileTimeToAprTime(&aprtime, &time);
-    return aprtime; 
+    return aprtime;
 }
 
 APR_DECLARE(apr_status_t) apr_time_exp_gmt(apr_time_exp_t *result,
@@ -113,8 +113,8 @@ APR_DECLARE(apr_status_t) apr_time_exp_gmt(apr_time_exp_t *result,
     return APR_SUCCESS;
 }
 
-APR_DECLARE(apr_status_t) apr_time_exp_tz(apr_time_exp_t *result, 
-                                          apr_time_t input, 
+APR_DECLARE(apr_status_t) apr_time_exp_tz(apr_time_exp_t *result,
+                                          apr_time_t input,
                                           apr_int32_t offs)
 {
     FILETIME ft;
@@ -136,43 +136,43 @@ APR_DECLARE(apr_status_t) apr_time_exp_lt(apr_time_exp_t *result,
 {
     SYSTEMTIME st;
     FILETIME ft, localft;
-	TIME_ZONE_INFORMATION *tz;
-	SYSTEMTIME localst;
-	apr_time_t localtime;
+    TIME_ZONE_INFORMATION *tz;
+    SYSTEMTIME localst;
+    apr_time_t localtime;
 
     AprTimeToFileTime(&ft, input);
 
-	get_local_timezone(&tz);
+    get_local_timezone(&tz);
 
-	FileTimeToSystemTime(&ft, &st);
+    FileTimeToSystemTime(&ft, &st);
 
-	/* The Platform SDK documents that SYSTEMTIME/FILETIME are
-	 * generally UTC.  We use SystemTimeToTzSpecificLocalTime
-	 * because FileTimeToLocalFileFime is documented that the
-	 * resulting time local file time would have DST relative
-	 * to the *present* date, not the date converted.
-	 * The time value makes a roundtrip, localst cannot be invalid below.
-	 */
-	SystemTimeToTzSpecificLocalTime(tz, &st, &localst);
-	SystemTimeToAprExpTime(result, &localst);
-	result->tm_usec = (apr_int32_t) (input % APR_USEC_PER_SEC);
+    /* The Platform SDK documents that SYSTEMTIME/FILETIME are
+     * generally UTC.  We use SystemTimeToTzSpecificLocalTime
+     * because FileTimeToLocalFileFime is documented that the
+     * resulting time local file time would have DST relative
+     * to the *present* date, not the date converted.
+     * The time value makes a roundtrip, localst cannot be invalid below.
+     */
+    SystemTimeToTzSpecificLocalTime(tz, &st, &localst);
+    SystemTimeToAprExpTime(result, &localst);
+    result->tm_usec = (apr_int32_t) (input % APR_USEC_PER_SEC);
 
 
-	/* Recover the resulting time as an apr time and use the
-	 * delta for gmtoff in seconds (and ignore msec rounding) 
-	 */
-	SystemTimeToFileTime(&localst, &localft);
-	FileTimeToAprTime(&localtime, &localft);
-	result->tm_gmtoff = (int)apr_time_sec(localtime) 
-					  - (int)apr_time_sec(input);
+    /* Recover the resulting time as an apr time and use the
+     * delta for gmtoff in seconds (and ignore msec rounding)
+     */
+    SystemTimeToFileTime(&localst, &localft);
+    FileTimeToAprTime(&localtime, &localft);
+    result->tm_gmtoff = (int)apr_time_sec(localtime)
+                      - (int)apr_time_sec(input);
 
-	/* To compute the dst flag, we compare the expected 
-	 * local (standard) timezone bias to the delta.
-	 * [Note, in war time or double daylight time the
-	 * resulting tm_isdst is, desireably, 2 hours]
-	 */
-	result->tm_isdst = (result->tm_gmtoff / 3600)
-					 - (-(tz->Bias + tz->StandardBias) / 60);
+    /* To compute the dst flag, we compare the expected
+     * local (standard) timezone bias to the delta.
+     * [Note, in war time or double daylight time the
+     * resulting tm_isdst is, desireably, 2 hours]
+     */
+    result->tm_isdst = (result->tm_gmtoff / 3600)
+                     - (-(tz->Bias + tz->StandardBias) / 60);
 
     return APR_SUCCESS;
 }
@@ -225,7 +225,7 @@ APR_DECLARE(apr_status_t) apr_os_imp_time_get(apr_os_imp_time_t **ostime,
     return APR_SUCCESS;
 }
 
-APR_DECLARE(apr_status_t) apr_os_exp_time_get(apr_os_exp_time_t **ostime, 
+APR_DECLARE(apr_status_t) apr_os_exp_time_get(apr_os_exp_time_t **ostime,
                                               apr_time_exp_t *aprexptime)
 {
     (*ostime)->wYear = aprexptime->tm_year + 1900;
@@ -268,7 +268,7 @@ APR_DECLARE(void) apr_sleep(apr_interval_time_t t)
     /* One of the few sane situations for a cast, Sleep
      * is in ms, not us, and passed as a DWORD value
      */
-    Sleep((DWORD)(t / 1000));
+    Sleep((DWORD)((t + 999) / 1000));
 }
 
 static apr_status_t clock_restore(void *unsetres)

@@ -97,7 +97,7 @@ abts_suite *abts_add_suite(abts_suite *suite, const char *suite_name_full)
     char *p;
     const char *suite_name;
     curr_char = 0;
-    
+
     /* Only end the suite if we actually ran it */
     if (suite && suite->tail &&!suite->tail->not_run) {
         end_suite(suite);
@@ -108,7 +108,7 @@ abts_suite *abts_add_suite(abts_suite *suite, const char *suite_name_full)
     subsuite->failed = 0;
     subsuite->skipped = 0;
     subsuite->next = NULL;
-    /* suite_name_full may be an absolute path depending on __FILE__ 
+    /* suite_name_full may be an absolute path depending on __FILE__
      * expansion */
     suite_name = strrchr(suite_name_full, '/');
     if (!suite_name) {
@@ -131,7 +131,7 @@ abts_suite *abts_add_suite(abts_suite *suite, const char *suite_name_full)
     if (list_tests) {
         fprintf(stdout, "%s\n", subsuite->name);
     }
-    
+
     subsuite->not_run = 0;
 
     if (suite == NULL) {
@@ -185,12 +185,12 @@ void abts_run_test(abts_suite *ts, test_func f, void *value)
     tc.failed = 0;
     tc.skipped = 0;
     tc.suite = ss;
-    
+
     ss->num_test++;
     update_status();
 
     f(&tc, value);
-    
+
     if (tc.failed) {
         ss->failed++;
     }
@@ -281,50 +281,52 @@ void abts_log_message(const char *fmt, ...)
     }
 }
 
-void abts_int_equal(abts_case *tc, const int expected, const int actual, int lineno)
-{
-    update_status();
-    if (tc->failed) return;
-
-    if (expected == actual) return;
-
-    tc->failed = TRUE;
-    if (verbose) {
-        fprintf(stderr, "Line %d: expected <%d>, but saw <%d>\n", lineno, expected, actual);
-        fflush(stderr);
-    }
+#define IMPL_abts_T_equal(T, NAME, FMT, CAST) \
+void abts_##NAME##_equal(abts_case *tc, const T expected, const T actual, int lineno) \
+{ \
+    update_status(); \
+    if (tc->failed) return; \
+    \
+    if (expected == actual) return; \
+    \
+    tc->failed = TRUE; \
+    if (verbose) { \
+        fprintf(stderr, "Line %d: expected <%" FMT ">, but saw <%" FMT ">\n", \
+                lineno, CAST expected, CAST actual); \
+        fflush(stderr); \
+    } \
 }
+IMPL_abts_T_equal(int,                int,    "d",   (int))
+IMPL_abts_T_equal(unsigned int,       uint,   "u",   (unsigned int))
+IMPL_abts_T_equal(long,               long,   "ld",  (long))
+IMPL_abts_T_equal(unsigned long,      ulong,  "lu",  (unsigned long))
+IMPL_abts_T_equal(long long,          llong,  "lld", (long long))
+IMPL_abts_T_equal(unsigned long long, ullong, "llu", (unsigned long long))
+IMPL_abts_T_equal(size_t,             size,   "lu",  (unsigned long))
 
-void abts_int_nequal(abts_case *tc, const int expected, const int actual, int lineno)
-{
-    update_status();
-    if (tc->failed) return;
-
-    if (expected != actual) return;
-
-    tc->failed = TRUE;
-    if (verbose) {
-        fprintf(stderr, "Line %d: expected something other than <%d>, but saw <%d>\n",
-                lineno, expected, actual);
-        fflush(stderr);
-    }
+#define IMPL_abts_T_nequal(T, NAME, FMT, CAST) \
+void abts_##NAME##_nequal(abts_case *tc, const T expected, const T actual, int lineno) \
+{ \
+    update_status(); \
+    if (tc->failed) return; \
+    \
+    if (expected != actual) return; \
+    \
+    tc->failed = TRUE; \
+    if (verbose) { \
+        fprintf(stderr, "Line %d: expected something other than <%" FMT ">, " \
+                "but saw <%" FMT ">\n", \
+                lineno, CAST expected, CAST actual); \
+        fflush(stderr); \
+    } \
 }
-
-void abts_size_equal(abts_case *tc, size_t expected, size_t actual, int lineno)
-{
-    update_status();
-    if (tc->failed) return;
-
-    if (expected == actual) return;
-
-    tc->failed = TRUE;
-    if (verbose) {
-        /* Note that the comparison is type-exact, reporting must be a best-fit */
-        fprintf(stderr, "Line %d: expected %lu, but saw %lu\n", lineno, 
-                (unsigned long)expected, (unsigned long)actual);
-        fflush(stderr);
-    }
-}
+IMPL_abts_T_nequal(int,                int,    "d",   (int))
+IMPL_abts_T_nequal(unsigned int,       uint,   "u",   (unsigned int))
+IMPL_abts_T_nequal(long,               long,   "ld",  (long))
+IMPL_abts_T_nequal(unsigned long,      ulong,  "lu",  (unsigned long))
+IMPL_abts_T_nequal(long long,          llong,  "lld", (long long))
+IMPL_abts_T_nequal(unsigned long long, ullong, "llu", (unsigned long long))
+IMPL_abts_T_nequal(size_t,             size,   "lu",  (unsigned long))
 
 void abts_str_equal(abts_case *tc, const char *expected, const char *actual, int lineno)
 {
@@ -371,7 +373,7 @@ void abts_ptr_notnull(abts_case *tc, const void *ptr, int lineno)
         fflush(stderr);
     }
 }
- 
+
 void abts_ptr_equal(abts_case *tc, const void *expected, const void *actual, int lineno)
 {
     update_status();
@@ -454,7 +456,7 @@ int main(int argc, const char *const argv[]) {
     int rv;
     int list_provided = 0;
     abts_suite *suite = NULL;
-   
+
     initialize();
 
     quiet = !isatty(STDOUT_FILENO);
@@ -501,4 +503,4 @@ int main(int argc, const char *const argv[]) {
     abts_free_suite(suite);
     return rv;
 }
-       
+

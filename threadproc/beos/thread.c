@@ -19,7 +19,7 @@
 
 APR_DECLARE(apr_status_t) apr_threadattr_create(apr_threadattr_t **new, apr_pool_t *pool)
 {
-    (*new) = (apr_threadattr_t *)apr_palloc(pool, 
+    (*new) = (apr_threadattr_t *)apr_palloc(pool,
               sizeof(apr_threadattr_t));
 
     if ((*new) == NULL) {
@@ -27,27 +27,27 @@ APR_DECLARE(apr_status_t) apr_threadattr_create(apr_threadattr_t **new, apr_pool
     }
 
     (*new)->pool = pool;
-	(*new)->attr = (int32)B_NORMAL_PRIORITY;
+    (*new)->attr = (int32)B_NORMAL_PRIORITY;
 
     return APR_SUCCESS;
 }
 
 APR_DECLARE(apr_status_t) apr_threadattr_detach_set(apr_threadattr_t *attr, apr_int32_t on)
 {
-	if (on == 1){
-		attr->detached = 1;
-	} else {
-		attr->detached = 0;
-	}    
+    if (on == 1){
+        attr->detached = 1;
+    } else {
+        attr->detached = 0;
+    }
     return APR_SUCCESS;
 }
 
 APR_DECLARE(apr_status_t) apr_threadattr_detach_get(apr_threadattr_t *attr)
 {
-	if (attr->detached == 1){
-		return APR_DETACH;
-	}
-	return APR_NOTDETACH;
+    if (attr->detached == 1){
+        return APR_DETACH;
+    }
+    return APR_NOTDETACH;
 }
 
 APR_DECLARE(apr_status_t) apr_threadattr_stacksize_set(apr_threadattr_t *attr,
@@ -60,6 +60,13 @@ APR_DECLARE(apr_status_t) apr_threadattr_guardsize_set(apr_threadattr_t *attr,
                                                        apr_size_t size)
 {
     return APR_ENOTIMPL;
+}
+
+APR_DECLARE(apr_status_t) apr_threadattr_max_free_set(apr_threadattr_t *attr,
+                                                      apr_size_t size)
+{
+    attr->max_free = size;
+    return APR_SUCCESS;
 }
 
 #if APR_HAS_THREAD_LOCAL
@@ -91,27 +98,22 @@ static apr_status_t alloc_thread(apr_thread_t **new,
 {
     apr_status_t stat;
     apr_abortfunc_t abort_fn = apr_pool_abort_get(pool);
-    apr_allocator_t *allocator;
     apr_pool_t *p;
 
     /* The thread can be detached anytime (from the creation or later with
      * apr_thread_detach), so it needs its own pool and allocator to not
      * depend on a parent pool which could be destroyed before the thread
      * exits. The allocator needs no mutex obviously since the pool should
-     * not be used nor create children pools outside the thread.
+     * not be used nor create children pools outside the thread. Passing
+     * NULL allocator will create one like that.
      */
-    stat = apr_allocator_create(&allocator);
+    stat = apr_pool_create_unmanaged_ex(&p, abort_fn, NULL);
     if (stat != APR_SUCCESS) {
-        if (abort_fn)
-            abort_fn(stat);
         return stat;
     }
-    stat = apr_pool_create_unmanaged_ex(&p, abort_fn, allocator);
-    if (stat != APR_SUCCESS) {
-        apr_allocator_destroy(allocator);
-        return stat;
+    if (attr && attr->max_free) {
+        apr_allocator_max_free_set(apr_pool_allocator_get(p), attr->max_free);
     }
-    apr_allocator_owner_set(allocator, p);
 
     (*new) = (apr_thread_t *)apr_pcalloc(p, sizeof(apr_thread_t));
     if ((*new) == NULL) {
@@ -147,7 +149,7 @@ APR_DECLARE(apr_status_t) apr_thread_create(apr_thread_t **new,
         temp = B_NORMAL_PRIORITY;
 
     /* First we create the new thread...*/
-    (*new)->td = spawn_thread((thread_func)dummy_worker, 
+    (*new)->td = spawn_thread((thread_func)dummy_worker,
                               "apr thread", temp, (*new));
 
     /* Now we try to run it...*/
@@ -164,6 +166,7 @@ APR_DECLARE(apr_status_t) apr_thread_current_create(apr_thread_t **current,
                                                     apr_threadattr_t *attr,
                                                     apr_pool_t *pool)
 {
+#if APR_HAS_THREAD_LOCAL
     apr_status_t stat;
 
     *current = apr_thread_current();
@@ -179,10 +182,11 @@ APR_DECLARE(apr_status_t) apr_thread_current_create(apr_thread_t **current,
 
     (*current)->td = apr_os_thread_current();
 
-#if APR_HAS_THREAD_LOCAL
     current_thread = *current;
-#endif
     return APR_SUCCESS;
+#else
+    return APR_ENOTIMPL;
+#endif
 }
 
 APR_DECLARE(void) apr_thread_current_after_fork(void)
@@ -288,7 +292,7 @@ APR_DECLARE(apr_status_t) apr_os_thread_get(apr_os_thread_t **thethd, apr_thread
     return APR_SUCCESS;
 }
 
-APR_DECLARE(apr_status_t) apr_os_thread_put(apr_thread_t **thd, apr_os_thread_t *thethd, 
+APR_DECLARE(apr_status_t) apr_os_thread_put(apr_thread_t **thd, apr_os_thread_t *thethd,
                                             apr_pool_t *pool)
 {
     if (pool == NULL) {
@@ -330,7 +334,7 @@ APR_DECLARE(apr_status_t) apr_thread_once_init(apr_thread_once_t **control,
 
 
 
-APR_DECLARE(apr_status_t) apr_thread_once(apr_thread_once_t *control, 
+APR_DECLARE(apr_status_t) apr_thread_once(apr_thread_once_t *control,
                                           void (*func)(void))
 {
     if (!control->hit) {
@@ -343,3 +347,17 @@ APR_DECLARE(apr_status_t) apr_thread_once(apr_thread_once_t *control,
 }
 
 APR_POOL_IMPLEMENT_ACCESSOR(thread)
+
+APR_DECLARE(apr_status_t) apr_thread_name_set(const char* name,
+                                              apr_thread_t *thread,
+                                              apr_pool_t *pool)
+{
+    return APR_ENOTIMPL;
+}
+
+APR_DECLARE(apr_status_t) apr_thread_name_get(apr_thread_t *thread,
+                                              char **name,
+                                              apr_pool_t pool)
+{
+    return APR_ENOTIMPL;
+}
